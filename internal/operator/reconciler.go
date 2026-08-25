@@ -141,7 +141,47 @@ func (r *Reconciler) ensureRBAC(ctx context.Context, mdName string) error {
 	if _, err := r.Core.RbacV1().ClusterRoleBindings().Create(ctx, binding, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
+
+	// MeshIncident/MeshResolution (ADR-0005) are namespaced and only ever
+	// touched by the agent in its own namespace, so — unlike the Istio
+	// access above, which is genuinely cluster-wide — this is a namespaced
+	// Role, not a ClusterRole.
+	crdRole := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: r.Namespace, Labels: map[string]string{managedByLabel: managedByValue}},
+		Rules: []rbacv1.PolicyRule{
+			{APIGroups: []string{"talam.dev"}, Resources: []string{"meshincidents", "meshresolutions"}, Verbs: []string{"get", "list", "watch", "create", "update", "patch"}},
+			{APIGroups: []string{"talam.dev"}, Resources: []string{"meshincidents/status", "meshresolutions/status"}, Verbs: []string{"get", "update", "patch"}},
+		},
+	}
+	if err := r.applyRole(ctx, crdRole); err != nil {
+		return err
+	}
+	crdBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: bindingName, Namespace: r.Namespace, Labels: map[string]string{managedByLabel: managedByValue}},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName},
+		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: r.Namespace}},
+	}
+	if _, err := r.Core.RbacV1().RoleBindings(r.Namespace).Create(ctx, crdBinding, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
 	return nil
+}
+
+func (r *Reconciler) applyRole(ctx context.Context, role *rbacv1.Role) error {
+	existing, err := r.Core.RbacV1().Roles(role.Namespace).Get(ctx, role.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		_, err := r.Core.RbacV1().Roles(role.Namespace).Create(ctx, role, metav1.CreateOptions{})
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	if existing.Labels[managedByLabel] != managedByValue {
+		return fmt.Errorf("Role %q in %q exists but isn't labeled %s=%s — refusing to overwrite an object this operator didn't create", role.Name, role.Namespace, managedByLabel, managedByValue)
+	}
+	existing.Rules = role.Rules
+	_, err = r.Core.RbacV1().Roles(role.Namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
 const (

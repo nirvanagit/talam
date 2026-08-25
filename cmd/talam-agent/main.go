@@ -1,5 +1,6 @@
-// Command talam-agent runs the scan loop and remediation applier described
-// in docs/components/agent/README.md. One agent per cluster.
+// Command talam-agent runs the scan loop and the CRD-native remediation
+// pipeline described in docs/components/agent/README.md and ADR-0005. One
+// agent per cluster.
 package main
 
 import (
@@ -25,8 +26,10 @@ func main() {
 	cluster := flag.String("cluster", "", "this cluster's name, as reported to talam-server (required)")
 	serverURL := flag.String("server", "", "talam-server base URL, e.g. http://talam-server:8443 (required)")
 	kubeconfig := flag.String("kubeconfig", "", "path to kubeconfig (defaults to in-cluster, falls back to $KUBECONFIG)")
+	namespace := flag.String("namespace", "talam-system", "namespace to create/reconcile MeshIncident and MeshResolution objects in")
 	scanInterval := flag.Duration("scan-interval", 30*time.Second, "how often to scan; docs default 5m, shorter locally for fast demo feedback")
-	applyInterval := flag.Duration("apply-interval", 15*time.Second, "how often to poll for approved remediation proposals")
+	syncInterval := flag.Duration("sync-interval", 15*time.Second, "how often to sync MeshIncident/MeshResolution from talam-server (ADR-0005)")
+	reconcileInterval := flag.Duration("reconcile-interval", 5*time.Second, "how often to reconcile triggered MeshResolutions and roll up MeshIncident completeness")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -46,6 +49,7 @@ func main() {
 		log.Error("failed to build dynamic client", "err", err)
 		os.Exit(1)
 	}
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 
 	reporter := agent.NewReporter(*serverURL, *cluster, log)
 	engine := &agent.Engine{
@@ -55,20 +59,35 @@ func main() {
 		Interval:  *scanInterval,
 		Log:       log,
 	}
-	applier := &agent.Applier{
+	sync := &agent.CRDSync{
 		ServerURL: *serverURL,
 		Cluster:   *cluster,
+		Namespace: *namespace,
 		Dynamic:   dyn,
-		Client:    &http.Client{Timeout: 30 * time.Second},
+		Client:    httpClient,
 		Log:       log,
-		Interval:  *applyInterval,
 	}
+	resolutions := &agent.ResolutionReconciler{
+		Namespace: *namespace,
+		Dynamic:   dyn,
+		Applier: &agent.Applier{
+			ServerURL: *serverURL,
+			Cluster:   *cluster,
+			Dynamic:   dyn,
+			Client:    httpClient,
+			Log:       log,
+		},
+		Log: log,
+	}
+	incidents := &agent.IncidentReconciler{Namespace: *namespace, Dynamic: dyn, Log: log}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	log.Info("talam-agent starting", "cluster", *cluster, "server", *serverURL, "scanInterval", *scanInterval)
-	go applier.Run(ctx)
+	log.Info("talam-agent starting", "cluster", *cluster, "server", *serverURL, "namespace", *namespace, "scanInterval", *scanInterval)
+	go sync.Run(ctx, *syncInterval)
+	go resolutions.Run(ctx, *reconcileInterval)
+	go incidents.Run(ctx, *reconcileInterval)
 	engine.Run(ctx)
 }
 

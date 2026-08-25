@@ -1,0 +1,58 @@
+# See ADR-0005 (docs/decisions/0005-crd-native-incidents-and-resolutions.md)
+# for why this is agent-owned rather than created by talam-server directly.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: meshincidents.talam.dev
+spec:
+  group: talam.dev
+  scope: Namespaced
+  names:
+    kind: MeshIncident
+    listKind: MeshIncidentList
+    plural: meshincidents
+    singular: meshincident
+    shortNames: ["minc"]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: Complete
+          type: boolean
+          jsonPath: .status.complete
+        - name: LastSeen
+          type: date
+          jsonPath: .status.lastSeen
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: ["fingerprint", "serverIncidentId"]
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                fingerprint: { type: string }
+                serverIncidentId: { type: string }
+                firstSeen: { type: string, format: date-time }
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                state: { type: string, enum: ["Open", "Resolved"] }
+                lastSeen: { type: string, format: date-time }
+                explanation: { type: string }
+                explainError: { type: string }
+                complete: { type: boolean }
+                resolutionRefs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }

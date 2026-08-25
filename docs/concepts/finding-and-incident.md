@@ -1,6 +1,6 @@
 # Finding and Incident
 
-**Related:** reads [`analyzer-interface.md`](analyzer-interface.md); read by [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md), [`remediation-flow.md`](remediation-flow.md); see also [`../glossary/README.md`](../glossary/README.md)
+**Related:** reads [`analyzer-interface.md`](analyzer-interface.md), [`ADR-0005`](../decisions/0005-crd-native-incidents-and-resolutions.md); read by [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md), [`remediation-flow.md`](remediation-flow.md); see also [`../glossary/README.md`](../glossary/README.md), [`../api/crds.md`](../api/crds.md#meshincident--meshresolution)
 
 ## Finding
 
@@ -21,6 +21,8 @@ type Finding struct {
 
 ## Incident
 
-An Incident is the server-side correlation of one or more Findings that describe the same underlying problem — for example, the same broken mTLS handshake reported independently from both the client-side and server-side sidecar, or from two different clusters sharing a mesh boundary. Correlation is the [server](../components/server/README.md)'s job; agents never see or produce Incidents, only Findings.
+An Incident is the server-side correlation of one or more Findings that describe the same underlying problem — for example, the same broken mTLS handshake reported independently from both the client-side and server-side sidecar, or from two different clusters sharing a mesh boundary. Correlation is the [server](../components/server/README.md)'s job; agents never produce Incidents from scratch, only Findings.
 
 An Incident is what actually gets shown to a user and what a [`RemediationProposal`](remediation-flow.md) is generated against — proposing a fix against every duplicate Finding independently would just be noise.
+
+Per [ADR-0005](../decisions/0005-crd-native-incidents-and-resolutions.md), the agent *does* see Incidents as of v0.1: it mirrors each one relevant to its own cluster into a [`MeshIncident`](../api/crds.md#meshincident--meshresolution) CR, which is also where `Complete` — every associated remediation has been performed — is tracked, computed locally from the `MeshResolution` objects referencing it.

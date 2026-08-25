@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -28,52 +27,18 @@ var patchableKinds = map[string]schema.GroupVersionResource{
 	"ServiceEntry":    {Group: "networking.istio.io", Version: "v1", Resource: "serviceentries"},
 }
 
-// Applier polls talam-server for human-approved proposals targeting this
-// cluster and applies them: server-side dry run first, then the real patch,
-// then reports the outcome either way (docs/concepts/remediation-flow.md).
+// Applier performs the actual apply of a human-approved patch: server-side
+// dry run first, then the real patch, then reports the outcome either way
+// (docs/concepts/remediation-flow.md). What triggers a call to apply — a
+// MeshResolution CR's spec.triggered flipping true — is
+// ResolutionReconciler's job (internal/agent/resolutionreconciler.go); this
+// type only knows how to do the write once told to.
 type Applier struct {
 	ServerURL string
 	Cluster   string
 	Dynamic   dynamic.Interface
 	Client    *http.Client
 	Log       *slog.Logger
-	Interval  time.Duration
-}
-
-func (ap *Applier) Run(ctx context.Context) {
-	ticker := time.NewTicker(ap.Interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			ap.pollOnce(ctx)
-		}
-	}
-}
-
-func (ap *Applier) pollOnce(ctx context.Context) {
-	url := fmt.Sprintf("%s/v1/proposals?state=%s&cluster=%s", ap.ServerURL, api.ProposalApproved, ap.Cluster)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return
-	}
-	resp, err := ap.Client.Do(req)
-	if err != nil {
-		ap.Log.Warn("proposal poll failed", "err", err)
-		return
-	}
-	defer resp.Body.Close()
-	var proposals []api.RemediationProposal
-	if err := json.NewDecoder(resp.Body).Decode(&proposals); err != nil {
-		ap.Log.Warn("proposal poll decode failed", "err", err)
-		return
-	}
-	for _, p := range proposals {
-		outcome := ap.apply(ctx, p)
-		ap.reportOutcome(ctx, p.ID, outcome)
-	}
 }
 
 func (ap *Applier) apply(ctx context.Context, p api.RemediationProposal) api.OutcomeRequest {
@@ -132,18 +97,32 @@ func renderDryRun(obj map[string]any) string {
 	return string(b)
 }
 
-func (ap *Applier) reportOutcome(ctx context.Context, proposalID string, outcome api.OutcomeRequest) {
-	body, _ := json.Marshal(outcome)
+// reportOutcome tells talam-server what happened. Returns an error rather
+// than only logging one — callers that track whether the report actually
+// landed (e.g. ResolutionReconciler's outcomeReported bookkeeping) need to
+// know so they can retry; a report that's merely logged-and-forgotten on
+// failure is what produced the split-brain this return value exists to fix.
+func (ap *Applier) reportOutcome(ctx context.Context, proposalID string, outcome api.OutcomeRequest) error {
+	body, err := json.Marshal(outcome)
+	if err != nil {
+		return err
+	}
 	url := fmt.Sprintf("%s/v1/proposals/%s/outcome", ap.ServerURL, proposalID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := ap.Client.Do(req)
 	if err != nil {
 		ap.Log.Warn("outcome report failed", "proposal", proposalID, "err", err)
-		return
+		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("server returned %s", resp.Status)
+		ap.Log.Warn("outcome report rejected", "proposal", proposalID, "err", err)
+		return err
+	}
+	return nil
 }

@@ -44,6 +44,12 @@ type Incident struct {
 	// ExplainError records a failed or rejected LLM interaction; per the
 	// architecture doc such incidents surface as "explanation only" or raw.
 	ExplainError string `json:"explainError,omitempty"`
+
+	// Complete is computed (never stored) from this incident's proposals: true
+	// once every RemediationProposal for it has been performed — reached
+	// Applied or Failed. A Rejected proposal does not count as performed, and
+	// an incident with zero proposals is never complete. See ADR-0005.
+	Complete bool `json:"complete"`
 }
 
 // RiskTier classifies how dangerous a proposed patch is to apply.

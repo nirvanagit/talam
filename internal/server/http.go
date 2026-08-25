@@ -63,7 +63,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.Store.ListIncidents())
+	writeJSON(w, http.StatusOK, s.Store.ListIncidents(r.URL.Query().Get("cluster")))
 }
 
 func (s *Server) handleGetIncident(w http.ResponseWriter, r *http.Request) {

@@ -94,6 +94,7 @@ async function refresh() {
     return `<div class="row">
       <div class="top">
         <span class="badge ${sev}">${sev}</span>
+        ${inc.complete ? '<span class="badge Applied">Complete</span>' : ''}
         <span class="muted">${inc.state} · ${fmtTime(inc.lastSeen)}</span>
       </div>
       <div class="res">${f.resource.kind}/${f.resource.namespace}/${f.resource.name} · ${f.analyzerId}</div>

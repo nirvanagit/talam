@@ -4,12 +4,15 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/nirvanagit/talam/pkg/api"
@@ -18,6 +21,19 @@ import (
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// testApplier builds an Applier whose reportOutcome call has somewhere
+// harmless to fail — reportOutcome only logs a warning on error, so a
+// guaranteed-refused address is enough; tests that care about the outcome
+// report itself point ServerURL at an httptest.Server instead.
+func testApplier(dyn dynamic.Interface) *Applier {
+	return &Applier{
+		ServerURL: "http://127.0.0.1:0",
+		Dynamic:   dyn,
+		Client:    &http.Client{Timeout: time.Second},
+		Log:       testLogger(),
+	}
 }
 
 func newFakeDestinationRule(namespace, name, resourceVersion string) *unstructured.Unstructured {
@@ -43,6 +59,8 @@ func newFakeDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynamicClient
 	scheme := runtime.NewScheme()
 	gvrToListKind := map[schema.GroupVersionResource]string{
 		{Group: "networking.istio.io", Version: "v1", Resource: "destinationrules"}: "DestinationRuleList",
+		gvrMeshIncident:   "MeshIncidentList",
+		gvrMeshResolution: "MeshResolutionList",
 	}
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
 }

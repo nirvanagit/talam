@@ -10,9 +10,12 @@
 #   ClusterRole it creates (internal/operator/reconciler.go ensureRBAC). Keep
 #   that block in sync with ensureRBAC's agent ClusterRole rules.
 # - A namespaced Role, bound only in talam-system, for the agent's
-#   ServiceAccount and Deployment — both always created in the operator's own
+#   ServiceAccount, Deployment, and — per ADR-0005 — its MeshIncident /
+#   MeshResolution access: all three are always created in the operator's own
 #   namespace (Reconciler.Namespace), never cluster-wide, so the grant
-#   shouldn't be either.
+#   shouldn't be either. The talam.dev rules here exist for the same mirror
+#   reason as the ClusterRole block above (RBAC escalation check), and must
+#   stay in sync with ensureRBAC's agent Role rules.
 #
 # It has no permissions on Secrets and never calls an LLM
 # (docs/concepts/security-model.md, ADR-0001). Note "clusterrolebindings"
@@ -83,6 +86,21 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "list", "watch", "create"]
+  # Mirror of the agent Role this operator creates in its own namespace
+  # (internal/operator/reconciler.go ensureRBAC) — required by the RBAC
+  # escalation check, not used directly by the operator itself.
+  - apiGroups: ["talam.dev"]
+    resources: ["meshincidents", "meshresolutions"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["talam.dev"]
+    resources: ["meshincidents/status", "meshresolutions/status"]
+    verbs: ["get", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

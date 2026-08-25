@@ -233,7 +233,13 @@ func (s *Store) Decide(id string, d api.DecisionRequest) (*api.RemediationPropos
 
 // RecordOutcome records the agent's apply result. Outcomes are recorded
 // regardless of success — rejected patches and failed dry-runs are history
-// too (docs/concepts/remediation-flow.md).
+// too (docs/concepts/remediation-flow.md). Idempotent: a proposal already in
+// the terminal state this same outcome would produce is treated as success,
+// not an error — the agent retries a report whose HTTP response it never
+// saw (e.g. the POST landed and was processed, but the ack was lost), and
+// that retry must not fail just because the state transition already
+// happened (see internal/agent/resolutionreconciler.go's outcomeReported
+// bookkeeping, ADR-0005).
 func (s *Store) RecordOutcome(id string, o api.OutcomeRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -241,30 +247,61 @@ func (s *Store) RecordOutcome(id string, o api.OutcomeRequest) error {
 	if !ok {
 		return fmt.Errorf("no such proposal %q", id)
 	}
+	wantState := api.ProposalFailed
+	if o.Success {
+		wantState = api.ProposalApplied
+	}
+	if p.State == wantState {
+		return nil
+	}
 	if p.State != api.ProposalApproved {
 		return fmt.Errorf("proposal %q is %s, not Approved", id, p.State)
 	}
 	p.DryRunDiff = o.DryRunDiff
 	p.Outcome = o.Detail
-	if o.Success {
-		p.State = api.ProposalApplied
-	} else {
-		p.State = api.ProposalFailed
-	}
+	p.State = wantState
 	s.persistLocked()
 	return nil
 }
 
-// ListIncidents returns incidents newest-first.
-func (s *Store) ListIncidents() []api.Incident {
+// ListIncidents returns incidents newest-first, optionally filtered to one
+// cluster (matched against the incident's own findings, same as proposals).
+func (s *Store) ListIncidents(cluster string) []api.Incident {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]api.Incident, 0, len(s.Incidents))
 	for _, inc := range s.Incidents {
-		out = append(out, *inc)
+		if cluster != "" && !incidentInCluster(inc, cluster) {
+			continue
+		}
+		out = append(out, s.withCompleteLocked(*inc))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
 	return out
+}
+
+func incidentInCluster(inc *api.Incident, cluster string) bool {
+	return len(inc.Findings) > 0 && inc.Findings[0].Cluster == cluster
+}
+
+// withCompleteLocked computes Incident.Complete: true once every proposal for
+// this incident has been Performed (Applied or Failed) and there's at least
+// one. A Rejected proposal leaves the incident incomplete — see ADR-0005.
+// Caller must hold s.mu.
+func (s *Store) withCompleteLocked(inc api.Incident) api.Incident {
+	n := 0
+	for _, p := range s.Proposals {
+		if p.IncidentID != inc.ID {
+			continue
+		}
+		n++
+		if p.State != api.ProposalApplied && p.State != api.ProposalFailed {
+			inc.Complete = false
+			return inc
+		}
+	}
+	inc.Complete = n > 0
+	return inc
 }
 
 // GetIncident returns one incident by ID.
@@ -275,7 +312,7 @@ func (s *Store) GetIncident(id string) (api.Incident, bool) {
 	if !ok {
 		return api.Incident{}, false
 	}
-	return *inc, true
+	return s.withCompleteLocked(*inc), true
 }
 
 // ListProposals returns proposals newest-first, optionally filtered.
