@@ -1,0 +1,72 @@
+# See ADR-0006 (docs/decisions/0006-mcp-evidence-enrichment.md).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: mcpservers.talam.dev
+spec:
+  group: talam.dev
+  scope: Namespaced
+  names:
+    kind: MCPServer
+    listKind: MCPServerList
+    plural: mcpservers
+    singular: mcpserver
+    shortNames: ["mcps"]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Toolset
+          type: string
+          jsonPath: .spec.toolset
+        - name: Endpoint
+          type: string
+          jsonPath: .spec.endpoint
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            Registers an MCP endpoint talam-server's deterministic
+            evidence-enrichment step can call (ADR-0006) — never something an
+            LLM decides to call on its own. talam-server polls every
+            MCPServer in its own namespace, connects, and makes it available
+            to the enrichment table keyed by spec.toolset.
+          properties:
+            spec:
+              type: object
+              required: ["toolset", "endpoint"]
+              properties:
+                toolset:
+                  type: string
+                  enum: ["metrics", "kubernetes", "mesh", "custom"]
+                  description: >-
+                    What kind of tools this server exposes. "mesh" is
+                    talam-mesh-mcp (this repo, deploy/mesh-mcp/); "metrics"
+                    and "kubernetes" are expected to be off-the-shelf MCP
+                    servers registered by URL.
+                endpoint:
+                  type: string
+                  description: Streamable-HTTP MCP endpoint URL.
+                authSecretRef:
+                  type: object
+                  description: Secret (same namespace) holding a bearer token, under key "token".
+                  properties:
+                    name: { type: string }
+                    key:
+                      type: string
+                      default: token
+            status:
+              type: object
+              properties:
+                ready: { type: boolean }
+                message: { type: string }
+                availableTools:
+                  type: array
+                  items: { type: string }
+                lastCheckedAt: { type: string }

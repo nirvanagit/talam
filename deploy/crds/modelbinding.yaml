@@ -1,0 +1,71 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: modelbindings.talam.dev
+spec:
+  group: talam.dev
+  scope: Namespaced
+  names:
+    kind: ModelBinding
+    listKind: ModelBindingList
+    plural: modelbindings
+    singular: modelbinding
+    shortNames: ["mb"]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Provider
+          type: string
+          jsonPath: .spec.provider
+        - name: Model
+          type: string
+          jsonPath: .spec.model
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            Declares which LLM talam-server's gateway uses. talam-server polls
+            the ModelBinding named in its --model-binding-name flag
+            (default "default") in its own namespace; editing this object
+            live-switches the model without restarting the server.
+          properties:
+            spec:
+              type: object
+              required: ["provider"]
+              properties:
+                provider:
+                  type: string
+                  enum: ["anthropic", "openai-compatible", "claude-cli"]
+                  description: >-
+                    "anthropic" calls api.anthropic.com directly. "openai-compatible"
+                    calls any OpenAI chat-completions-shaped endpoint (baseURL
+                    required) — for a self-hosted model on air-gapped clusters.
+                    "claude-cli" shells out to a local claude binary; local-dev only,
+                    do not use in a cluster deployment.
+                model:
+                  type: string
+                  description: Model identifier passed to the provider, e.g. claude-sonnet-5.
+                baseURL:
+                  type: string
+                  description: Required for openai-compatible; ignored otherwise.
+                apiKeySecretRef:
+                  type: object
+                  description: Secret (same namespace) holding the provider credential.
+                  properties:
+                    name: { type: string }
+                    key:
+                      type: string
+                      default: apiKey
+            status:
+              type: object
+              properties:
+                ready: { type: boolean }
+                message: { type: string }
+                lastVerifiedAt: { type: string }

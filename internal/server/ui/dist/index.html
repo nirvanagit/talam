@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>talam — fleet dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #12151c; --border: #232837; --text: #e6e9f0; --muted: #8b93a7;
+    --crit: #ef4444; --warn: #f59e0b; --info: #3b82f6; --ok: #22c55e; --accent: #7c8cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  #provider { font-size: 12px; color: var(--muted); border: 1px solid var(--border); padding: 4px 10px; border-radius: 999px; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .stat .n { font-size: 24px; font-weight: 700; }
+  .stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-height: 200px; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; }
+  .row { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+  .row:hover { border-color: var(--accent); }
+  .row .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .badge { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; text-transform: uppercase; }
+  .badge.Critical { background: rgba(239,68,68,.15); color: var(--crit); }
+  .badge.Warning { background: rgba(245,158,11,.15); color: var(--warn); }
+  .badge.Info { background: rgba(59,130,246,.15); color: var(--info); }
+  .badge.Applied { background: rgba(34,197,94,.15); color: var(--ok); }
+  .badge.Pending { background: rgba(124,140,255,.15); color: var(--accent); }
+  .badge.Rejected, .badge.Failed { background: rgba(239,68,68,.15); color: var(--crit); }
+  .res { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  .exp { margin-top: 6px; color: var(--text); }
+  .muted { color: var(--muted); }
+  button { background: var(--accent); border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+  button.reject { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .patch { font-family: ui-monospace, monospace; font-size: 11px; background: #0b0d12; padding: 8px; border-radius: 6px; margin-top: 8px; white-space: pre-wrap; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>talam <span>fleet dashboard</span></h1>
+  <div id="provider">—</div>
+</header>
+<main>
+  <div class="stats" id="stats"></div>
+  <section>
+    <h2>Incidents</h2>
+    <div id="incidents"><div class="empty">Loading…</div></div>
+  </section>
+  <section>
+    <h2>Remediation proposals</h2>
+    <div id="proposals"><div class="empty">Loading…</div></div>
+  </section>
+</main>
+<script>
+const $ = (sel) => document.querySelector(sel);
+const fmtTime = (s) => s ? new Date(s).toLocaleString() : '';
+
+async function j(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.status === 204 ? null : r.json();
+}
+
+function severityOf(inc) {
+  if (!inc.findings || !inc.findings.length) return 'Info';
+  return inc.findings[inc.findings.length - 1].severity;
+}
+
+async function refresh() {
+  const [stats, incidents, proposals] = await Promise.all([
+    j('/v1/stats'), j('/v1/incidents'), j('/v1/proposals'),
+  ]);
+
+  $('#provider').textContent = 'LLM: ' + (stats.llmProvider || 'unresolved');
+
+  $('#stats').innerHTML = [
+    ['Open incidents', stats.openIncidents],
+    ['Resolved', stats.resolvedIncidents],
+    ['Pending proposals', stats.pendingProposals],
+    ['Applied fixes', stats.appliedProposals],
+    ['Clusters', (stats.clusters || []).length || 0],
+  ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+  $('#incidents').innerHTML = incidents.length ? incidents.map((inc) => {
+    const sev = severityOf(inc);
+    const f = inc.findings[inc.findings.length - 1];
+    return `<div class="row">
+      <div class="top">
+        <span class="badge ${sev}">${sev}</span>
+        ${inc.complete ? '<span class="badge Applied">Complete</span>' : ''}
+        <span class="muted">${inc.state} · ${fmtTime(inc.lastSeen)}</span>
+      </div>
+      <div class="res">${f.resource.kind}/${f.resource.namespace}/${f.resource.name} · ${f.analyzerId}</div>
+      <div class="exp">${inc.explanation ? inc.explanation : (inc.explainError ? '<span class="muted">explain failed: ' + inc.explainError + '</span>' : '<span class="muted">explaining…</span>')}</div>
+    </div>`;
+  }).join('') : '<div class="empty">No incidents. Mesh is clean.</div>';
+
+  $('#proposals').innerHTML = proposals.length ? proposals.map((p) => `
+    <div class="row" data-id="${p.id}">
+      <div class="top">
+        <span class="badge ${p.state}">${p.state}</span>
+        <span class="muted">risk: ${p.riskTier} · ${fmtTime(p.createdAt)}</span>
+      </div>
+      <div class="res">${p.target.kind}/${p.target.namespace}/${p.target.name}</div>
+      <div class="exp">${p.summary}</div>
+      <div class="patch">${JSON.stringify(p.patch, null, 2)}</div>
+      ${p.state === 'Pending' ? `<div class="actions">
+        <button data-action="approve" data-id="${p.id}">Approve</button>
+        <button class="reject" data-action="reject" data-id="${p.id}">Reject</button>
+      </div>` : (p.outcome ? `<div class="muted" style="margin-top:6px">${p.outcome}</div>` : '')}
+    </div>`).join('') : '<div class="empty">No proposals yet.</div>';
+}
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const approve = btn.dataset.action === 'approve';
+  const decidedBy = window.prompt('Your name (for the audit trail):', 'sre');
+  if (!decidedBy) return;
+  await j(`/v1/proposals/${id}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approve, decidedBy }),
+  });
+  refresh();
+});
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

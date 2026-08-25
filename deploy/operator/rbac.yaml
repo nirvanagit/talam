@@ -1,0 +1,117 @@
+# The operator's own permissions, split by scope:
+#
+# - A ClusterRole for what's inherently cluster-scoped: MeshDiagnostics
+#   (a cluster-scoped CRD) and ClusterRole/ClusterRoleBinding (the agent's
+#   RBAC objects, which are non-namespaced by kind). Everything below the
+#   "mirror" line in that ClusterRole isn't used by the operator directly —
+#   it exists only because Kubernetes' RBAC escalation check refuses to let
+#   a ClusterRole grant a rule its own creator doesn't already hold, and this
+#   operator hands those exact read-only + scoped-patch rules to the agent
+#   ClusterRole it creates (internal/operator/reconciler.go ensureRBAC). Keep
+#   that block in sync with ensureRBAC's agent ClusterRole rules.
+# - A namespaced Role, bound only in talam-system, for the agent's
+#   ServiceAccount, Deployment, and — per ADR-0005 — its MeshIncident /
+#   MeshResolution access: all three are always created in the operator's own
+#   namespace (Reconciler.Namespace), never cluster-wide, so the grant
+#   shouldn't be either. The talam.dev rules here exist for the same mirror
+#   reason as the ClusterRole block above (RBAC escalation check), and must
+#   stay in sync with ensureRBAC's agent Role rules.
+#
+# It has no permissions on Secrets and never calls an LLM
+# (docs/concepts/security-model.md, ADR-0001). Note "clusterrolebindings"
+# below grants no "update" verb: internal/operator/reconciler.go's
+# ensureRBAC only ever creates a ClusterRoleBinding, never updates one, so
+# the grant doesn't need to either.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: talam-operator
+  namespace: talam-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: talam-operator
+rules:
+  - apiGroups: ["talam.dev"]
+    resources: ["meshdiagnostics"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["talam.dev"]
+    resources: ["meshdiagnostics/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create"]
+  # Everything below this line is a mirror of the agent ClusterRole this
+  # operator creates (internal/operator/reconciler.go ensureRBAC) — required
+  # by the RBAC escalation check, not used directly by the operator itself.
+  - apiGroups: [""]
+    resources: ["services", "pods", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.istio.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["security.istio.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.istio.io"]
+    resources: ["destinationrules", "virtualservices", "gateways", "serviceentries"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: talam-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: talam-operator
+subjects:
+  - kind: ServiceAccount
+    name: talam-operator
+    namespace: talam-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: talam-operator
+  namespace: talam-system
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "list", "watch", "create"]
+  # Mirror of the agent Role this operator creates in its own namespace
+  # (internal/operator/reconciler.go ensureRBAC) — required by the RBAC
+  # escalation check, not used directly by the operator itself.
+  - apiGroups: ["talam.dev"]
+    resources: ["meshincidents", "meshresolutions"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["talam.dev"]
+    resources: ["meshincidents/status", "meshresolutions/status"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: talam-operator
+  namespace: talam-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: talam-operator
+subjects:
+  - kind: ServiceAccount
+    name: talam-operator
+    namespace: talam-system

@@ -1,15 +1,4 @@
-# Go
-bin/
-*.exe
-*.test
-*.out
-vendor/
-
-# Editors / OS
-.DS_Store
-.idea/
-.vscode/
-
-# Local env
-.env
-.env.local
+/bin/
+/bin-host/
+*.local
+talam-server-store.json*

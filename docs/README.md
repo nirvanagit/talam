@@ -27,10 +27,12 @@ This folder is organized as a graph: every doc is a **node** with a single clear
 - [`components/operator/README.md`](components/operator/README.md)
 - [`components/agent/README.md`](components/agent/README.md)
 - [`components/server/README.md`](components/server/README.md)
+- [`components/mesh-mcp/README.md`](components/mesh-mcp/README.md)
 - [`concepts/analyzer-interface.md`](concepts/analyzer-interface.md)
 - [`concepts/finding-and-incident.md`](concepts/finding-and-incident.md)
 - [`concepts/remediation-flow.md`](concepts/remediation-flow.md)
 - [`concepts/security-model.md`](concepts/security-model.md)
+- [`concepts/object-model.md`](concepts/object-model.md) — every CRD, what owns it, how they reference each other
 - [`decisions/README.md`](decisions/README.md) — ADR index
 - [`api/crds.md`](api/crds.md)
 - [`api/analyzer-catalog.md`](api/analyzer-catalog.md)

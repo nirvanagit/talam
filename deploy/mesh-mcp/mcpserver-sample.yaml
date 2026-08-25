@@ -1,0 +1,13 @@
+# Registers talam-mesh-mcp with talam-server's evidence-enrichment step
+# (ADR-0006). Endpoint assumes talam-server runs in-cluster, in the same
+# namespace, per deploy/server/deployment.yaml — if talam-server runs on the
+# host instead (see README.md's host-server path), port-forward
+# svc/talam-mesh-mcp and point endpoint at that instead.
+apiVersion: talam.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: mesh
+  namespace: talam-system
+spec:
+  toolset: mesh
+  endpoint: http://talam-mesh-mcp.talam-system.svc:9090

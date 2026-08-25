@@ -1,0 +1,68 @@
+# See ADR-0005 (docs/decisions/0005-crd-native-incidents-and-resolutions.md).
+# spec.triggered is the only field a human (via the dashboard, or kubectl as
+# an escape hatch) is expected to set — everything else is agent-managed,
+# synced from talam-server.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: meshresolutions.talam.dev
+spec:
+  group: talam.dev
+  scope: Namespaced
+  names:
+    kind: MeshResolution
+    listKind: MeshResolutionList
+    plural: meshresolutions
+    singular: meshresolution
+    shortNames: ["mres"]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Incident
+          type: string
+          jsonPath: .spec.incidentRef
+        - name: Risk
+          type: string
+          jsonPath: .spec.riskTier
+        - name: Triggered
+          type: boolean
+          jsonPath: .spec.triggered
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: ["incidentRef", "serverProposalId", "target", "targetResourceVersion", "patch"]
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                incidentRef: { type: string }
+                serverProposalId: { type: string }
+                target:
+                  type: object
+                  properties:
+                    kind: { type: string }
+                    namespace: { type: string }
+                    name: { type: string }
+                targetResourceVersion: { type: string }
+                summary: { type: string }
+                explanation: { type: string }
+                riskTier: { type: string, enum: ["Low", "Medium", "High"] }
+                triggered: { type: boolean, default: false }
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                phase: { type: string, enum: ["Pending", "Approved", "Rejected", "Applied", "Failed"] }
+                performed: { type: boolean }
+                outcomeReported: { type: boolean }
+                dryRunDiff: { type: string }
+                detail: { type: string }
+                appliedAt: { type: string, format: date-time }

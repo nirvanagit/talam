@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: talam-operator
+  namespace: talam-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: talam-operator }
+  template:
+    metadata:
+      labels: { app: talam-operator }
+    spec:
+      serviceAccountName: talam-operator
+      containers:
+        - name: talam-operator
+          image: talam-operator:local
+          imagePullPolicy: IfNotPresent
+          args: ["-namespace=talam-system"]
