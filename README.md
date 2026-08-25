@@ -34,6 +34,8 @@ The `claude`-CLI fallback (`provider: claude-cli`, or automatic when no key/`Mod
 
 talam-server itself can run in or out of the cluster either way — see [`docs/components/server/README.md`](docs/components/server/README.md).
 
+`make deploy`/`make up` also deploy **talam-mesh-mcp**, a purpose-built read-only [MCP](https://modelcontextprotocol.io) server exposing live Istio introspection, and register it as an `MCPServer` so talam-server's LLM gateway explains findings with live cluster state, not just the analyzer's point-in-time snapshot — always via a deterministic, server-side lookup table, never the LLM deciding what to fetch (see [ADR-0006](docs/decisions/0006-mcp-evidence-enrichment.md)).
+
 ## Status
 
 v0.1 in progress: talam-agent, talam-server, and talam-operator are implemented per the architecture below, with an initial 3-analyzer slice ([`docs/api/analyzer-catalog.md`](docs/api/analyzer-catalog.md) lists 8; the remaining 5 are tracked follow-up work) — see the [roadmap](docs/architecture/overview.md#roadmap).

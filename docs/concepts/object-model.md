@@ -1,6 +1,6 @@
 # Object model
 
-**Related:** reads [`ADR-0001`](../decisions/0001-server-agent-operator-split.md), [`ADR-0005`](../decisions/0005-crd-native-incidents-and-resolutions.md), [`finding-and-incident.md`](finding-and-incident.md), [`remediation-flow.md`](remediation-flow.md); read by [`../api/crds.md`](../api/crds.md), [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md)
+**Related:** reads [`ADR-0001`](../decisions/0001-server-agent-operator-split.md), [`ADR-0005`](../decisions/0005-crd-native-incidents-and-resolutions.md), [`ADR-0006`](../decisions/0006-mcp-evidence-enrichment.md), [`finding-and-incident.md`](finding-and-incident.md), [`remediation-flow.md`](remediation-flow.md); read by [`../api/crds.md`](../api/crds.md), [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md), [`../components/mesh-mcp/README.md`](../components/mesh-mcp/README.md)
 
 talam's operating principle: **every piece of state that matters is a Kubernetes object, and every action is a controller reacting to one.** Not a REST call that happens to also update a store, not a message on a queue — an object with a `spec` (desired/observed state) and a `status` (what happened), sitting in etcd, watchable with `kubectl get`, diffable, and reconcilable by exactly one owner. This doc is the map of that object graph: every object, what owns it, what references what, and — for the one place the model isn't fully closed yet — what's proposed to finish it.
 
@@ -21,6 +21,7 @@ The one place this genuinely widens is [ADR-0004](../decisions/0004-mesh-agnosti
 | [`MeshIncident`](#meshincident) | Namespace | Agent | Agent's [CRDSync](../components/agent/README.md), from talam-server | Agent's IncidentReconciler; `kubectl`; dashboard (via server, not the CR) |
 | [`MeshResolution`](#meshresolution) | Namespace | Agent | Agent's CRDSync, from talam-server | Agent's ResolutionReconciler; `kubectl` |
 | [`ModelBinding`](#modelbinding) | Namespace | Human (or GitOps) | — | talam-server's LLM gateway |
+| [`MCPServer`](#mcpserver) | Namespace | Human (or GitOps) | — | talam-server's evidence-enrichment step |
 
 Everything below "Namespace" scope lives in the same namespace an agent's Deployment does (`talam-system` by default) — there's exactly one tenant per cluster in v0.1, so namespacing these mainly buys clean `kubectl` ergonomics and RBAC scoping, not multi-tenancy.
 
@@ -96,6 +97,10 @@ Namespaced. Full schema: [`../api/crds.md#meshincident--meshresolution`](../api/
 ### ModelBinding
 
 Namespaced. Full schema: [`../api/crds.md#modelbinding`](../api/crds.md#modelbinding). The odd one out in this table — it's *server*-owned (talam-server polls and reads it, never the agent), and it only exists at all when talam-server runs in-cluster. Included here because it's still the same principle: which LLM backs the fleet is an object, not an environment variable, and changing it is `kubectl apply`, not a restart.
+
+### MCPServer
+
+Namespaced, server-owned like `ModelBinding`. Full schema: [`../api/crds.md#mcpserver`](../api/crds.md#mcpserver). Registers one MCP endpoint — `spec.toolset` tags what kind (`metrics`, `kubernetes`, `mesh`, `custom`) so [`internal/server/enrich`](../components/server/README.md)'s deterministic table can reference "the mesh server" generically. Per [ADR-0006](../decisions/0006-mcp-evidence-enrichment.md), this is the one place talam-server calls *into* a cluster rather than the reverse — see [`../components/mesh-mcp/README.md`](../components/mesh-mcp/README.md) for the purpose-built server this repo runs to be called.
 
 ## Walking one incident end to end
 

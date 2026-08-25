@@ -1,0 +1,33 @@
+# Read-only, and only on the Istio API groups talam-mesh-mcp's tools cover —
+# same shape as the agent's Istio access (deploy/operator/rbac.yaml), never
+# broader. No Secret access, no write verbs anywhere.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: talam-mesh-mcp
+  namespace: talam-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: talam-mesh-mcp
+rules:
+  - apiGroups: ["networking.istio.io"]
+    resources: ["destinationrules", "serviceentries"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["security.istio.io"]
+    resources: ["peerauthentications"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: talam-mesh-mcp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: talam-mesh-mcp
+subjects:
+  - kind: ServiceAccount
+    name: talam-mesh-mcp
+    namespace: talam-system

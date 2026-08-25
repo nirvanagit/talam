@@ -2,7 +2,7 @@ SHELL := /bin/bash
 GOARCH := $(shell go env GOARCH)
 KIND_CLUSTER := talam-demo
 NAMESPACE := talam-system
-BINARIES := talam-agent talam-server talam-operator talamctl
+BINARIES := talam-agent talam-server talam-operator talam-mesh-mcp talamctl
 
 .PHONY: build test vet lint \
 	kind-up kind-down istio-install \
@@ -49,15 +49,18 @@ kind-load: build ## Build container images from bin/ and load them into kind
 	docker build -f docker/Dockerfile --build-arg BINARY=talam-agent    -t talam-agent:local    .
 	docker build -f docker/Dockerfile --build-arg BINARY=talam-server   -t talam-server:local   .
 	docker build -f docker/Dockerfile --build-arg BINARY=talam-operator -t talam-operator:local .
-	kind load docker-image talam-agent:local talam-server:local talam-operator:local --name $(KIND_CLUSTER)
+	docker build -f docker/Dockerfile --build-arg BINARY=talam-mesh-mcp -t talam-mesh-mcp:local .
+	kind load docker-image talam-agent:local talam-server:local talam-operator:local talam-mesh-mcp:local --name $(KIND_CLUSTER)
 
-deploy: kind-load ## Install CRDs and deploy operator + server (agent comes from the operator reconciling MeshDiagnostics)
+deploy: kind-load ## Install CRDs and deploy operator + server + mesh-mcp (agent comes from the operator reconciling MeshDiagnostics)
 	kubectl apply -f deploy/crds/
 	kubectl apply -f deploy/namespace.yaml
 	kubectl apply -f deploy/operator/rbac.yaml
 	kubectl apply -f deploy/operator/deployment.yaml
 	kubectl apply -f deploy/server/rbac.yaml
 	kubectl apply -f deploy/server/deployment.yaml
+	kubectl apply -f deploy/mesh-mcp/rbac.yaml
+	kubectl apply -f deploy/mesh-mcp/deployment.yaml
 	@if [ -n "$$ANTHROPIC_API_KEY" ]; then \
 		kubectl -n $(NAMESPACE) create secret generic talam-llm-credentials \
 			--from-literal=apiKey=$$ANTHROPIC_API_KEY --dry-run=client -o yaml | kubectl apply -f -; \
@@ -74,6 +77,8 @@ deploy: kind-load ## Install CRDs and deploy operator + server (agent comes from
 	fi
 	kubectl -n $(NAMESPACE) rollout status deployment/talam-server --timeout=120s
 	kubectl -n $(NAMESPACE) rollout status deployment/talam-operator --timeout=120s
+	kubectl -n $(NAMESPACE) rollout status deployment/talam-mesh-mcp --timeout=120s
+	kubectl apply -f deploy/mesh-mcp/mcpserver-sample.yaml
 	kubectl apply -f deploy/operator/meshdiagnostics-sample.yaml
 
 demo: ## Deploy the intentionally-broken demo mesh (docs: orphaned subset + dangling host)

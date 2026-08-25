@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: talam-mesh-mcp
+  namespace: talam-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: talam-mesh-mcp }
+  template:
+    metadata:
+      labels: { app: talam-mesh-mcp }
+    spec:
+      serviceAccountName: talam-mesh-mcp
+      containers:
+        - name: talam-mesh-mcp
+          image: talam-mesh-mcp:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9090
+          args: ["-addr=:9090"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: talam-mesh-mcp
+  namespace: talam-system
+spec:
+  selector: { app: talam-mesh-mcp }
+  ports:
+    - port: 9090
+      targetPort: 9090

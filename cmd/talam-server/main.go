@@ -19,7 +19,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/nirvanagit/talam/internal/server"
+	"github.com/nirvanagit/talam/internal/server/enrich"
 	"github.com/nirvanagit/talam/internal/server/llm"
+	"github.com/nirvanagit/talam/internal/server/mcp"
 )
 
 func main() {
@@ -40,24 +42,31 @@ func main() {
 
 	fallback := defaultFallbackProvider(log)
 	resolver := llm.NewBindingResolver(nil, nil, *bindingNamespace, *bindingName, fallback, log)
+	mcpRegistry := mcp.NewRegistry(nil, nil, *bindingNamespace, log)
 
 	if cfg, err := loadKubeConfig(*kubeconfig); err != nil {
-		log.Warn("no Kubernetes config available; ModelBinding CRD disabled, using env/CLI provider only", "err", err)
+		log.Warn("no Kubernetes config available; ModelBinding/MCPServer CRDs disabled, using env/CLI provider only", "err", err)
 	} else {
 		dyn, derr := dynamic.NewForConfig(cfg)
 		core, cerr := kubernetes.NewForConfig(cfg)
 		if derr != nil || cerr != nil {
-			log.Warn("failed to build Kubernetes clients; ModelBinding CRD disabled", "err", firstErr(derr, cerr))
+			log.Warn("failed to build Kubernetes clients; ModelBinding/MCPServer CRDs disabled", "err", firstErr(derr, cerr))
 		} else {
 			resolver.Dynamic = dyn
 			resolver.Core = core
 			go resolver.Start(context.Background(), 30*time.Second)
 			log.Info("watching ModelBinding for LLM provider selection", "namespace", *bindingNamespace, "name", *bindingName)
+
+			mcpRegistry.Dynamic = dyn
+			mcpRegistry.Core = core
+			go mcpRegistry.Start(context.Background(), 30*time.Second)
+			log.Info("watching MCPServer objects for evidence enrichment (ADR-0006)", "namespace", *bindingNamespace)
 		}
 	}
 
 	gateway := &llm.Gateway{ProviderFunc: resolver.Current}
-	orchestrator := &server.Orchestrator{Store: store, Gateway: gateway, Log: log}
+	enricher := &enrich.Enricher{Tools: mcpRegistry, Log: log}
+	orchestrator := &server.Orchestrator{Store: store, Gateway: gateway, Enricher: enricher, Log: log}
 	srv := &server.Server{Store: store, Orchestrator: orchestrator, Resolver: resolver, Log: log}
 
 	httpServer := &http.Server{Addr: *addr, Handler: srv.Routes()}
@@ -78,6 +87,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutdownCtx)
+	mcpRegistry.Close()
 }
 
 // defaultFallbackProvider picks claude-cli when there's no API key but a

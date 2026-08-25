@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/nirvanagit/talam/internal/server/enrich"
 	"github.com/nirvanagit/talam/internal/server/llm"
 	"github.com/nirvanagit/talam/pkg/api"
 )
@@ -13,9 +14,10 @@ import (
 // declined proposal leaves the incident as "explanation only" — never a
 // fatal error for the incident.
 type Orchestrator struct {
-	Store   *Store
-	Gateway *llm.Gateway
-	Log     *slog.Logger
+	Store    *Store
+	Gateway  *llm.Gateway
+	Enricher *enrich.Enricher // nil is fine — Enrich is a no-op then (ADR-0006)
+	Log      *slog.Logger
 }
 
 // Handle processes one batch of newly (re)opened incidents synchronously.
@@ -28,6 +30,7 @@ func (o *Orchestrator) Handle(ctx context.Context, incidents []api.Incident) {
 }
 
 func (o *Orchestrator) process(ctx context.Context, inc api.Incident) {
+	inc = o.Enricher.Enrich(ctx, inc)
 	explanation, err := o.Gateway.Explain(ctx, inc)
 	if err != nil {
 		o.Log.Error("explain failed", "incident", inc.ID, "err", err)
@@ -46,10 +49,13 @@ func (o *Orchestrator) process(ctx context.Context, inc api.Incident) {
 	defer o.Store.ReleaseProposalSlot(inc.ID)
 
 	// Re-fetch: SetExplanation mutated the stored copy, and Propose wants it.
+	// Re-enrich too — the store never persists enriched evidence, only the
+	// raw Finding data reported by the agent.
 	current, ok := o.Store.GetIncident(inc.ID)
 	if !ok {
 		return
 	}
+	current = o.Enricher.Enrich(ctx, current)
 	proposal, err := o.Gateway.Propose(ctx, current, explanation)
 	if err != nil {
 		if _, noPatch := err.(llm.ErrNoPatch); noPatch {
