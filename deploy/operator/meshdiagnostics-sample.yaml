@@ -1,0 +1,13 @@
+# Applying this is what causes talam-operator to deploy talam-agent — see
+# docs/api/crds.md#meshdiagnostics.
+apiVersion: talam.dev/v1alpha1
+kind: MeshDiagnostics
+metadata:
+  name: kind-local
+spec:
+  serverEndpoint: http://talam-server.talam-system.svc:8443
+  clusterName: kind-local
+  meshBackend: istio
+  scanInterval: 30s
+  agentImage: talam-agent:local
+  upgradePolicy: manual

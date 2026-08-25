@@ -1,0 +1,41 @@
+# Deliberately broken mesh config for local validation:
+#
+# 1. DestinationRule "httpbin" declares a v2 subset, but only a v1 Deployment
+#    exists (deploy/demo/httpbin.yaml) — istio.destinationrule.orphaned-subset
+#    should fire on the v2 subset.
+# 2. VirtualService "phantom-route" routes to a host with no backing Service
+#    or ServiceEntry — istio.virtualservice.dangling-host should fire.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: httpbin
+  namespace: demo
+spec:
+  host: httpbin
+  subsets:
+    - name: v1
+      labels: { version: v1 }
+    - name: v2
+      labels: { version: v2 } # no pod carries this label — orphaned
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: httpbin
+  namespace: demo
+spec:
+  hosts: ["httpbin"]
+  http:
+    - route:
+        - destination: { host: httpbin, subset: v1 }
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: phantom-route
+  namespace: demo
+spec:
+  hosts: ["phantom.demo.svc.cluster.local"]
+  http:
+    - route:
+        - destination: { host: totally-not-a-real-service.demo.svc.cluster.local }

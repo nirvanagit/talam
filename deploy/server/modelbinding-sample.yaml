@@ -1,0 +1,19 @@
+# The Kubernetes-native way to pick talam-server's LLM: apply this object
+# (and the Secret it references) instead of setting ANTHROPIC_API_KEY on the
+# server's own environment. Editing spec.model or spec.provider here
+# live-switches the model on the next poll (30s) with no restart.
+#
+# Create the secret first:
+#   kubectl create secret generic talam-llm-credentials -n talam-system \
+#     --from-literal=apiKey="$ANTHROPIC_API_KEY"
+apiVersion: talam.dev/v1alpha1
+kind: ModelBinding
+metadata:
+  name: default
+  namespace: talam-system
+spec:
+  provider: anthropic
+  model: claude-sonnet-5
+  apiKeySecretRef:
+    name: talam-llm-credentials
+    key: apiKey

@@ -1,0 +1,13 @@
+# Local-dev ModelBinding: no ANTHROPIC_API_KEY needed, uses the developer's
+# already-authenticated `claude` CLI. Not for cluster deployment — the
+# claude-cli provider requires the binary in talam-server's own environment,
+# which only makes sense when talam-server runs on the host
+# (docs/components/server/README.md: "can run in-cluster or entirely outside
+# Kubernetes").
+apiVersion: talam.dev/v1alpha1
+kind: ModelBinding
+metadata:
+  name: default
+  namespace: talam-system
+spec:
+  provider: claude-cli

@@ -1,0 +1,70 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: meshdiagnostics.talam.dev
+spec:
+  group: talam.dev
+  scope: Cluster
+  names:
+    kind: MeshDiagnostics
+    listKind: MeshDiagnosticsList
+    plural: meshdiagnostics
+    singular: meshdiagnostics
+    shortNames: ["mdiag"]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Server
+          type: string
+          jsonPath: .spec.serverEndpoint
+        - name: Healthy
+          type: boolean
+          jsonPath: .status.agentHealthy
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: ["serverEndpoint"]
+              properties:
+                serverEndpoint:
+                  type: string
+                  description: talam-server base URL this cluster's agent reports to.
+                clusterName:
+                  type: string
+                  description: Name this cluster reports as; defaults to the MeshDiagnostics object name.
+                meshBackend:
+                  type: string
+                  default: istio
+                scanInterval:
+                  type: string
+                  default: 5m
+                agentImage:
+                  type: string
+                analyzers:
+                  type: object
+                  properties:
+                    enabled:
+                      type: array
+                      items: { type: string }
+                    disabled:
+                      type: array
+                      items: { type: string }
+                upgradePolicy:
+                  type: string
+                  enum: ["manual", "auto-patch", "auto-minor"]
+                  default: manual
+            status:
+              type: object
+              properties:
+                agentHealthy:
+                  type: boolean
+                observedGeneration:
+                  type: integer
+                message:
+                  type: string

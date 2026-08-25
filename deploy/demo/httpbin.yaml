@@ -1,0 +1,42 @@
+# Demo workload for local validation (docs/architecture/overview.md's
+# "does it actually detect something" check). Only a v1 pod is deployed —
+# deploy/demo/broken-mesh.yaml references a v2 subset that will never exist,
+# which is exactly the orphaned-subset failure mode
+# docs/api/analyzer-catalog.md describes.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin
+  namespace: demo
+  labels: { app: httpbin }
+spec:
+  ports:
+    - port: 8000
+      targetPort: 80
+  selector: { app: httpbin }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin-v1
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: httpbin, version: v1 }
+  template:
+    metadata:
+      labels: { app: httpbin, version: v1 }
+    spec:
+      containers:
+        - name: httpbin
+          image: docker.io/kong/httpbin:0.1.0
+          ports:
+            - containerPort: 80

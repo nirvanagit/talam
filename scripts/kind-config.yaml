@@ -1,0 +1,6 @@
+# Single-node kind cluster, sufficient for the Istio demo profile and one
+# httpbin workload. Named cluster "talam-demo" (see Makefile).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane

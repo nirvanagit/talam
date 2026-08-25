@@ -1,0 +1,63 @@
+# The operator's own permissions: it must be able to create the agent's
+# ServiceAccount/RBAC/Deployment and read/write MeshDiagnostics status. It has
+# no permissions on Secrets and never calls an LLM (docs/concepts/security-model.md,
+# ADR-0001) — it just happens to also hold the exact read-only + scoped-patch
+# rules it grants the agent below. That duplication isn't optional: Kubernetes'
+# RBAC escalation check refuses to let a ClusterRole grant a rule its own
+# creator doesn't already hold, so the operator can't hand out permissions
+# (even read-only ones) it doesn't have itself. Keep this block in sync with
+# internal/operator/reconciler.go's ensureRBAC.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: talam-operator
+  namespace: talam-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: talam-operator
+rules:
+  - apiGroups: ["talam.dev"]
+    resources: ["meshdiagnostics"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["talam.dev"]
+    resources: ["meshdiagnostics/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  # Everything below this line is a mirror of the agent ClusterRole this
+  # operator creates (internal/operator/reconciler.go ensureRBAC) — required
+  # by the RBAC escalation check, not used directly by the operator itself.
+  - apiGroups: [""]
+    resources: ["services", "pods", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.istio.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["security.istio.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.istio.io"]
+    resources: ["destinationrules", "virtualservices", "gateways", "serviceentries"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: talam-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: talam-operator
+subjects:
+  - kind: ServiceAccount
+    name: talam-operator
+    namespace: talam-system
