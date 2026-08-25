@@ -81,7 +81,22 @@ func (ap *Applier) apply(ctx context.Context, p api.RemediationProposal) api.Out
 	if !ok {
 		return api.OutcomeRequest{Success: false, Detail: fmt.Sprintf("kind %q is not in the patchable allowlist", p.Target.Kind)}
 	}
-	patch, err := json.Marshal(p.Patch)
+	if p.TargetResourceVersion == "" {
+		// Every proposal minted by the gateway carries this (internal/server/llm).
+		// Its absence means the proposal predates that guarantee or was
+		// tampered with — refuse rather than apply an index-based patch blind.
+		return api.OutcomeRequest{Success: false, Detail: "proposal has no targetResourceVersion; refusing to apply an unpinned patch"}
+	}
+	// Prepend a "test" op asserting the live object's resourceVersion still
+	// matches what the proposal was generated from. JSON Patch applies all
+	// ops atomically server-side, so if the target has changed since the
+	// proposal was created — another patch, a person, GitOps — the whole
+	// patch is rejected instead of silently editing whatever now sits at the
+	// patch's array index (see docs/concepts/remediation-flow.md).
+	patchOps := append([]api.JSONPatchOp{
+		{Op: "test", Path: "/metadata/resourceVersion", Value: p.TargetResourceVersion},
+	}, p.Patch...)
+	patch, err := json.Marshal(patchOps)
 	if err != nil {
 		return api.OutcomeRequest{Success: false, Detail: "marshal patch: " + err.Error()}
 	}

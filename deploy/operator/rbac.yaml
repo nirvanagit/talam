@@ -1,12 +1,24 @@
-# The operator's own permissions: it must be able to create the agent's
-# ServiceAccount/RBAC/Deployment and read/write MeshDiagnostics status. It has
-# no permissions on Secrets and never calls an LLM (docs/concepts/security-model.md,
-# ADR-0001) — it just happens to also hold the exact read-only + scoped-patch
-# rules it grants the agent below. That duplication isn't optional: Kubernetes'
-# RBAC escalation check refuses to let a ClusterRole grant a rule its own
-# creator doesn't already hold, so the operator can't hand out permissions
-# (even read-only ones) it doesn't have itself. Keep this block in sync with
-# internal/operator/reconciler.go's ensureRBAC.
+# The operator's own permissions, split by scope:
+#
+# - A ClusterRole for what's inherently cluster-scoped: MeshDiagnostics
+#   (a cluster-scoped CRD) and ClusterRole/ClusterRoleBinding (the agent's
+#   RBAC objects, which are non-namespaced by kind). Everything below the
+#   "mirror" line in that ClusterRole isn't used by the operator directly —
+#   it exists only because Kubernetes' RBAC escalation check refuses to let
+#   a ClusterRole grant a rule its own creator doesn't already hold, and this
+#   operator hands those exact read-only + scoped-patch rules to the agent
+#   ClusterRole it creates (internal/operator/reconciler.go ensureRBAC). Keep
+#   that block in sync with ensureRBAC's agent ClusterRole rules.
+# - A namespaced Role, bound only in talam-system, for the agent's
+#   ServiceAccount and Deployment — both always created in the operator's own
+#   namespace (Reconciler.Namespace), never cluster-wide, so the grant
+#   shouldn't be either.
+#
+# It has no permissions on Secrets and never calls an LLM
+# (docs/concepts/security-model.md, ADR-0001). Note "clusterrolebindings"
+# below grants no "update" verb: internal/operator/reconciler.go's
+# ensureRBAC only ever creates a ClusterRoleBinding, never updates one, so
+# the grant doesn't need to either.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -24,15 +36,12 @@ rules:
   - apiGroups: ["talam.dev"]
     resources: ["meshdiagnostics/status"]
     verbs: ["get", "update", "patch"]
-  - apiGroups: [""]
-    resources: ["serviceaccounts"]
-    verbs: ["get", "list", "watch", "create", "update"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
     verbs: ["get", "list", "watch", "create", "update"]
   - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["clusterroles", "clusterrolebindings"]
-    verbs: ["get", "list", "watch", "create", "update"]
+    resources: ["clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create"]
   # Everything below this line is a mirror of the agent ClusterRole this
   # operator creates (internal/operator/reconciler.go ensureRBAC) — required
   # by the RBAC escalation check, not used directly by the operator itself.
@@ -56,6 +65,33 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
+  name: talam-operator
+subjects:
+  - kind: ServiceAccount
+    name: talam-operator
+    namespace: talam-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: talam-operator
+  namespace: talam-system
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: talam-operator
+  namespace: talam-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
   name: talam-operator
 subjects:
   - kind: ServiceAccount

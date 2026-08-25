@@ -52,6 +52,10 @@ func (a OrphanedSubset) Analyze(ctx context.Context, snap *mesh.MeshSnapshot) ([
 						"subsetLabels":     subset.Labels,
 						"serviceResolved":  svc != nil,
 						"readyPodsMatched": 0,
+						// resourceVersion at scan time — a proposal must echo this back so
+						// the applier can refuse to apply an index-based patch against a
+						// DestinationRule that has since changed (see internal/agent/applier.go).
+						"resourceVersion": dr.ResourceVersion,
 					},
 					DetectedAt: snap.CollectedAt,
 					Cluster:    snap.Cluster,

@@ -118,7 +118,7 @@ func (r *Reconciler) ensureRBAC(ctx context.Context, mdName string) error {
 	// patch-application path, scoped to Istio CRDs — never Secret, never RBAC
 	// objects (docs/concepts/security-model.md).
 	role := &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName},
+		ObjectMeta: metav1.ObjectMeta{Name: roleName, Labels: map[string]string{managedByLabel: managedByValue}},
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{""}, Resources: []string{"services", "pods", "endpoints"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"networking.istio.io"}, Resources: []string{"*"}, Verbs: []string{"get", "list", "watch"}},
@@ -130,8 +130,11 @@ func (r *Reconciler) ensureRBAC(ctx context.Context, mdName string) error {
 		return err
 	}
 
+	// Create-only, deliberately: this operator never updates an existing
+	// ClusterRoleBinding (see deploy/operator/rbac.yaml, which grants no
+	// "update" verb on clusterrolebindings — only what this code path uses).
 	binding := &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: bindingName},
+		ObjectMeta: metav1.ObjectMeta{Name: bindingName, Labels: map[string]string{managedByLabel: managedByValue}},
 		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: roleName},
 		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: r.Namespace}},
 	}
@@ -141,6 +144,18 @@ func (r *Reconciler) ensureRBAC(ctx context.Context, mdName string) error {
 	return nil
 }
 
+const (
+	managedByLabel = "talam.dev/managed-by"
+	managedByValue = "talam-operator"
+)
+
+// applyClusterRole creates or updates the given ClusterRole. It refuses to
+// update an existing object that doesn't carry this operator's managed-by
+// label — application-level defense in depth against the operator's own
+// broad update permission on the ClusterRole resource type (RBAC can't scope
+// "update" to objects it created, since child object names are derived from
+// arbitrary MeshDiagnostics names; see deploy/operator/rbac.yaml) ever
+// clobbering an unrelated ClusterRole that happens to collide on name.
 func (r *Reconciler) applyClusterRole(ctx context.Context, role *rbacv1.ClusterRole) error {
 	existing, err := r.Core.RbacV1().ClusterRoles().Get(ctx, role.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -149,6 +164,9 @@ func (r *Reconciler) applyClusterRole(ctx context.Context, role *rbacv1.ClusterR
 	}
 	if err != nil {
 		return err
+	}
+	if existing.Labels[managedByLabel] != managedByValue {
+		return fmt.Errorf("ClusterRole %q exists but isn't labeled %s=%s — refusing to overwrite an object this operator didn't create", role.Name, managedByLabel, managedByValue)
 	}
 	existing.Rules = role.Rules
 	_, err = r.Core.RbacV1().ClusterRoles().Update(ctx, existing, metav1.UpdateOptions{})

@@ -34,6 +34,7 @@ func (a UnboundGateway) Analyze(ctx context.Context, snap *mesh.MeshSnapshot) ([
 				RawEvidence: map[string]any{
 					"selector":         gw.Selector,
 					"readyPodsMatched": 0,
+					"resourceVersion":  gw.ResourceVersion,
 				},
 				DetectedAt: snap.CollectedAt,
 				Cluster:    snap.Cluster,

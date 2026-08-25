@@ -40,6 +40,7 @@ func (a DanglingHost) Analyze(ctx context.Context, snap *mesh.MeshSnapshot) ([]m
 					"destinationHost":   dest,
 					"parsedAsInCluster": inCluster,
 					"vsHosts":           vs.Hosts,
+					"resourceVersion":   vs.ResourceVersion,
 				},
 				DetectedAt: snap.CollectedAt,
 				Cluster:    snap.Cluster,

@@ -37,9 +37,14 @@ func (o *Orchestrator) process(ctx context.Context, inc api.Incident) {
 	o.Store.SetExplanation(inc.ID, explanation, "")
 	o.Log.Info("incident explained", "incident", inc.ID, "provider", o.Gateway.ProviderFunc().Name())
 
-	if o.Store.HasProposalForIncident(inc.ID) {
+	if !o.Store.ReserveProposalSlot(inc.ID) {
+		// Either a proposal already exists, or another process() call for
+		// this same incident (e.g. it resolved and reopened while an earlier
+		// Propose was still in flight) got there first.
 		return
 	}
+	defer o.Store.ReleaseProposalSlot(inc.ID)
+
 	// Re-fetch: SetExplanation mutated the stored copy, and Propose wants it.
 	current, ok := o.Store.GetIncident(inc.ID)
 	if !ok {

@@ -19,6 +19,11 @@ type DestinationRule struct {
 	Name      string   `json:"name"`
 	Host      string   `json:"host"`
 	Subsets   []Subset `json:"subsets,omitempty"`
+	// ResourceVersion is carried into evidence so a remediation proposal can
+	// be gated on it at apply time: if the live object has moved on since the
+	// proposal was generated, the applier refuses to apply an index-based
+	// patch against what may now be a different array element.
+	ResourceVersion string `json:"resourceVersion"`
 }
 
 // Subset is one subset entry of a DestinationRule.
@@ -34,18 +39,21 @@ type VirtualService struct {
 	Hosts            []string `json:"hosts,omitempty"`
 	Gateways         []string `json:"gateways,omitempty"`
 	DestinationHosts []string `json:"destinationHosts,omitempty"`
+	ResourceVersion  string   `json:"resourceVersion"`
 }
 
 // Gateway is a minimal view of networking.istio.io/v1 Gateway.
 type Gateway struct {
-	Namespace string            `json:"namespace"`
-	Name      string            `json:"name"`
-	Selector  map[string]string `json:"selector,omitempty"`
+	Namespace       string            `json:"namespace"`
+	Name            string            `json:"name"`
+	Selector        map[string]string `json:"selector,omitempty"`
+	ResourceVersion string            `json:"resourceVersion"`
 }
 
 // ServiceEntry is a minimal view of networking.istio.io/v1 ServiceEntry.
 type ServiceEntry struct {
-	Namespace string   `json:"namespace"`
-	Name      string   `json:"name"`
-	Hosts     []string `json:"hosts,omitempty"`
+	Namespace       string   `json:"namespace"`
+	Name            string   `json:"name"`
+	Hosts           []string `json:"hosts,omitempty"`
+	ResourceVersion string   `json:"resourceVersion"`
 }

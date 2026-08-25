@@ -109,15 +109,38 @@ func (g *Gateway) Propose(ctx context.Context, inc api.Incident, explanation str
 	if err := validateProposal(wire); err != nil {
 		return nil, fmt.Errorf("proposal rejected at schema boundary: %w", err)
 	}
+	// Never trust a resourceVersion echoed by the model — derive it from the
+	// finding evidence talam itself collected. This doubles as a check that
+	// the model's target is actually one of the resources this incident's
+	// evidence is about, not an invented one.
+	targetRV, ok := targetResourceVersion(inc, wire.Target)
+	if !ok {
+		return nil, fmt.Errorf("proposal rejected at schema boundary: target %s does not match any finding's resource in this incident's evidence", wire.Target)
+	}
 	return &api.RemediationProposal{
-		IncidentID:  inc.ID,
-		Cluster:     clusterOf(inc),
-		Target:      wire.Target,
-		Summary:     wire.Summary,
-		Explanation: explanation,
-		RiskTier:    wire.RiskTier,
-		Patch:       wire.Patch,
+		IncidentID:            inc.ID,
+		Cluster:               clusterOf(inc),
+		Target:                wire.Target,
+		TargetResourceVersion: targetRV,
+		Summary:               wire.Summary,
+		Explanation:           explanation,
+		RiskTier:              wire.RiskTier,
+		Patch:                 wire.Patch,
 	}, nil
+}
+
+// targetResourceVersion looks up the resourceVersion talam collected for the
+// finding whose Resource matches target — the only source of truth for it;
+// see RemediationProposal.TargetResourceVersion.
+func targetResourceVersion(inc api.Incident, target mesh.ResourceRef) (string, bool) {
+	for _, f := range inc.Findings {
+		if f.Resource != target {
+			continue
+		}
+		rv, ok := f.RawEvidence["resourceVersion"].(string)
+		return rv, ok && rv != ""
+	}
+	return "", false
 }
 
 var patchableKinds = map[string]bool{
@@ -148,7 +171,7 @@ func validateProposal(w proposalWire) error {
 		default:
 			return fmt.Errorf("patch[%d]: op %q not allowed", i, op.Op)
 		}
-		if !strings.HasPrefix(op.Path, "/spec") {
+		if op.Path != "/spec" && !strings.HasPrefix(op.Path, "/spec/") {
 			return fmt.Errorf("patch[%d]: path %q must stay under /spec", i, op.Path)
 		}
 	}

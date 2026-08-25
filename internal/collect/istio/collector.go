@@ -71,7 +71,7 @@ func (c *Collector) Snapshot(ctx context.Context) (*mesh.MeshSnapshot, error) {
 
 	if err := c.each(ctx, gvrDestinationRules, func(u *unstructured.Unstructured) {
 		host, _, _ := unstructured.NestedString(u.Object, "spec", "host")
-		dr := istiostate.DestinationRule{Namespace: u.GetNamespace(), Name: u.GetName(), Host: host}
+		dr := istiostate.DestinationRule{Namespace: u.GetNamespace(), Name: u.GetName(), Host: host, ResourceVersion: u.GetResourceVersion()}
 		subsets, _, _ := unstructured.NestedSlice(u.Object, "spec", "subsets")
 		for _, s := range subsets {
 			sm, ok := s.(map[string]any)
@@ -88,7 +88,7 @@ func (c *Collector) Snapshot(ctx context.Context) (*mesh.MeshSnapshot, error) {
 	}
 
 	if err := c.each(ctx, gvrVirtualServices, func(u *unstructured.Unstructured) {
-		vs := istiostate.VirtualService{Namespace: u.GetNamespace(), Name: u.GetName()}
+		vs := istiostate.VirtualService{Namespace: u.GetNamespace(), Name: u.GetName(), ResourceVersion: u.GetResourceVersion()}
 		vs.Hosts, _, _ = unstructured.NestedStringSlice(u.Object, "spec", "hosts")
 		vs.Gateways, _, _ = unstructured.NestedStringSlice(u.Object, "spec", "gateways")
 		for _, proto := range []string{"http", "tcp", "tls"} {
@@ -118,7 +118,7 @@ func (c *Collector) Snapshot(ctx context.Context) (*mesh.MeshSnapshot, error) {
 	if err := c.each(ctx, gvrGateways, func(u *unstructured.Unstructured) {
 		selector, _, _ := unstructured.NestedStringMap(u.Object, "spec", "selector")
 		st.Gateways = append(st.Gateways, istiostate.Gateway{
-			Namespace: u.GetNamespace(), Name: u.GetName(), Selector: selector,
+			Namespace: u.GetNamespace(), Name: u.GetName(), Selector: selector, ResourceVersion: u.GetResourceVersion(),
 		})
 	}); err != nil {
 		return nil, err
@@ -127,7 +127,7 @@ func (c *Collector) Snapshot(ctx context.Context) (*mesh.MeshSnapshot, error) {
 	if err := c.each(ctx, gvrServiceEntries, func(u *unstructured.Unstructured) {
 		hosts, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "hosts")
 		st.ServiceEntries = append(st.ServiceEntries, istiostate.ServiceEntry{
-			Namespace: u.GetNamespace(), Name: u.GetName(), Hosts: hosts,
+			Namespace: u.GetNamespace(), Name: u.GetName(), Hosts: hosts, ResourceVersion: u.GetResourceVersion(),
 		})
 	}); err != nil {
 		return nil, err

@@ -84,6 +84,12 @@ type RemediationProposal struct {
 	IncidentID string           `json:"incidentId"`
 	Cluster    string           `json:"cluster"`
 	Target     mesh.ResourceRef `json:"target"`
+	// TargetResourceVersion is the target's resourceVersion at the time the
+	// evidence it was proposed from was collected. The agent refuses to apply
+	// this patch if the live object's resourceVersion has since changed —
+	// index-based patches (e.g. "/spec/subsets/1") are only safe against the
+	// exact object shape they were computed from; see internal/agent/applier.go.
+	TargetResourceVersion string `json:"targetResourceVersion,omitempty"`
 
 	Summary     string        `json:"summary"`
 	Explanation string        `json:"explanation"`

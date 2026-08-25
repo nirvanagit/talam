@@ -28,6 +28,11 @@ type Store struct {
 	Incidents map[string]*api.Incident            `json:"incidents"` // by incident ID
 	Proposals map[string]*api.RemediationProposal `json:"proposals"` // by proposal ID
 	seq       int
+	// proposing tracks incident IDs with a Propose call currently in flight —
+	// not persisted, just an in-process lock closing the gap between checking
+	// "does this incident have a proposal yet" and the LLM round-trip that
+	// creates one. See ReserveProposalSlot.
+	proposing map[string]bool
 }
 
 func NewStore(path string) (*Store, error) {
@@ -35,6 +40,7 @@ func NewStore(path string) (*Store, error) {
 		path:      path,
 		Incidents: map[string]*api.Incident{},
 		Proposals: map[string]*api.RemediationProposal{},
+		proposing: map[string]bool{},
 	}
 	if path == "" {
 		return s, nil
@@ -49,9 +55,9 @@ func NewStore(path string) (*Store, error) {
 	if err := json.Unmarshal(raw, s); err != nil {
 		return nil, fmt.Errorf("corrupt store file %s: %w", path, err)
 	}
-	for range s.Incidents {
-		s.seq = len(s.Incidents) + len(s.Proposals)
-	}
+	// Resume the ID sequence past whatever was already persisted, so reload
+	// doesn't risk re-minting an ID collision.
+	s.seq = len(s.Incidents) + len(s.Proposals)
 	return s, nil
 }
 
@@ -158,16 +164,47 @@ func (s *Store) AddProposal(p *api.RemediationProposal) {
 	s.persistLocked()
 }
 
-// HasProposalForIncident prevents duplicate proposals for one incident.
+// HasProposalForIncident reports whether a non-terminal proposal already
+// exists for an incident. Exported for callers that just want a read (e.g.
+// tests); the orchestrator uses ReserveProposalSlot instead, which combines
+// this check with an in-flight lock so two concurrent propose attempts for
+// the same incident can't both pass it.
 func (s *Store) HasProposalForIncident(incidentID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.hasProposalForIncidentLocked(incidentID)
+}
+
+func (s *Store) hasProposalForIncidentLocked(incidentID string) bool {
 	for _, p := range s.Proposals {
 		if p.IncidentID == incidentID && p.State != api.ProposalRejected && p.State != api.ProposalFailed {
 			return true
 		}
 	}
 	return false
+}
+
+// ReserveProposalSlot atomically checks "no proposal exists yet for this
+// incident and no propose call is already in flight for it" and, if true,
+// marks one in flight. Returns false if either condition fails — the caller
+// must not call Propose. Always pair with a deferred ReleaseProposalSlot.
+func (s *Store) ReserveProposalSlot(incidentID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.proposing[incidentID] || s.hasProposalForIncidentLocked(incidentID) {
+		return false
+	}
+	s.proposing[incidentID] = true
+	return true
+}
+
+// ReleaseProposalSlot clears the in-flight marker set by ReserveProposalSlot.
+// Safe to call unconditionally once a propose attempt finishes, whether it
+// succeeded, failed, or declined.
+func (s *Store) ReleaseProposalSlot(incidentID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.proposing, incidentID)
 }
 
 // Decide records a human approval or rejection of a pending proposal.
