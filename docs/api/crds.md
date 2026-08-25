@@ -1,6 +1,6 @@
 # CRDs
 
-**Related:** reads [`ADR-0005`](../decisions/0005-crd-native-incidents-and-resolutions.md), [`../components/operator/README.md`](../components/operator/README.md), [`../components/server/README.md`](../components/server/README.md), [`../concepts/remediation-flow.md`](../concepts/remediation-flow.md), [`../concepts/finding-and-incident.md`](../concepts/finding-and-incident.md); read by [`../components/operator/README.md`](../components/operator/README.md), [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md)
+**Related:** reads [`ADR-0005`](../decisions/0005-crd-native-incidents-and-resolutions.md), [`../components/operator/README.md`](../components/operator/README.md), [`../components/server/README.md`](../components/server/README.md), [`../concepts/remediation-flow.md`](../concepts/remediation-flow.md), [`../concepts/finding-and-incident.md`](../concepts/finding-and-incident.md); read by [`../components/operator/README.md`](../components/operator/README.md), [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md), [`../concepts/object-model.md`](../concepts/object-model.md)
 
 | Resource | Owner | Purpose |
 |---|---|---|
