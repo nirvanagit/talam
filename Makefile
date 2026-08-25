@@ -63,7 +63,14 @@ deploy: kind-load ## Install CRDs and deploy operator + server (agent comes from
 			--from-literal=apiKey=$$ANTHROPIC_API_KEY --dry-run=client -o yaml | kubectl apply -f -; \
 		kubectl apply -f deploy/server/modelbinding-sample.yaml; \
 	else \
-		echo "ANTHROPIC_API_KEY not set — skipping ModelBinding; talam-server falls back to the local claude CLI."; \
+		echo ""; \
+		echo "!! ANTHROPIC_API_KEY not set. The in-cluster talam-server image has no claude CLI"; \
+		echo "!! (that fallback only works when talam-server runs on the host — see README), so"; \
+		echo "!! LLM calls will fail until you either:"; \
+		echo "!!   export ANTHROPIC_API_KEY=... && make deploy   # re-run with a real key, or"; \
+		echo "!!   kubectl apply -f deploy/server/modelbinding-sample.yaml  # after creating"; \
+		echo "!!     the talam-llm-credentials secret yourself against a running cluster."; \
+		echo ""; \
 	fi
 	kubectl -n $(NAMESPACE) rollout status deployment/talam-server --timeout=120s
 	kubectl -n $(NAMESPACE) rollout status deployment/talam-operator --timeout=120s

@@ -28,9 +28,11 @@ This creates a local kind cluster, installs Istio, builds and deploys talam-oper
 - `make down` — delete the kind cluster.
 - `make help` — full target list.
 
-talam-server needs an LLM credential to explain findings: set `ANTHROPIC_API_KEY` before `make up`, or apply a [`ModelBinding`](docs/api/crds.md#modelbinding) — see that doc for the Kubernetes-native way to pick the provider/model. With neither, and a local `claude` CLI on `PATH`, it falls back to that (useful for a laptop with a Claude subscription but no API key).
+talam-server needs an LLM credential to explain findings. `make up` deploys it *inside* the cluster, so it needs `ANTHROPIC_API_KEY` set before you run `make up`/`make deploy` (or a [`ModelBinding`](docs/api/crds.md#modelbinding) with `provider: openai-compatible` pointed at something cluster-reachable) — without one, the in-cluster server has no way to reach an LLM and every explain call will fail.
 
-talam-server itself can run in or out of the cluster — see [`docs/components/server/README.md`](docs/components/server/README.md).
+The `claude`-CLI fallback (`provider: claude-cli`, or automatic when no key/`ModelBinding` is found) only works when talam-server runs on the **host**, not in the container `make up` deploys, since it shells out to a `claude` binary that isn't in that image. If you don't have an API key but do have an authenticated `claude` CLI, run talam-server on the host instead: `go run ./cmd/talam-server -kubeconfig ~/.kube/config` (defaults to `--model-binding-namespace talam-system --model-binding-name default`, so `kubectl apply -f deploy/server/modelbinding-claude-cli.yaml` picks it up), point the in-cluster `MeshDiagnostics`' `serverEndpoint` at `http://host.docker.internal:<port>` instead of the in-cluster Service, and skip `deploy/server/deployment.yaml`. This is exactly how this repo's own local validation was run — see the PR description for the full trace.
+
+talam-server itself can run in or out of the cluster either way — see [`docs/components/server/README.md`](docs/components/server/README.md).
 
 ## Status
 
