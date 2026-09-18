@@ -85,9 +85,9 @@ The agent needs a second credential now — one scoped to its `fleet-<clusterNam
 
 The external system in a spoke cluster needs **no cross-cluster credential at all** — it only ever patches `status.conditions` on the local `MeshResolution` mirror, ordinary same-cluster RBAC. The agent remains the *only* thing in a spoke cluster that ever holds a credential into the server's cluster, in either direction — the same "one component, one crossing point" shape ADR-0001 already established, just with two flows (`MeshIncident` up, `MeshResolution` down plus the relayed `Applied` condition back up) through that single point instead of one.
 
-### talam-mesh-mcp stays exactly where it is
+### talam-mesh-mcp — placement revisited in ADR-0009
 
-This ADR does not move evidence enrichment. It's still the server, right before an `Explain` call, that reaches into the relevant spoke cluster's `talam-mesh-mcp` endpoint ([ADR-0006](0006-mcp-evidence-enrichment.md), unchanged) — not the agent. The reasoning holds independently of this ADR's transport change: enrichment is lazy (fetched only for findings that actually escalate to an LLM call), and only the server knows, at explain-time, which findings those are. Moving the call to the agent would mean either over-fetching on every `MeshIncident` write (most re-detections are repeats that never trigger a fresh `Explain`) or reintroducing a push-style "please enrich this one" signal into the spoke cluster — exactly the kind of coordination this whole ADR is built to avoid. The one remaining place talam-server reaches into a spoke cluster directly stays scoped to exactly that, and no wider.
+This ADR originally kept evidence enrichment server-side, reasoning that only the server knew, at explain-time, which findings warranted the extra MCP round-trip. That argument doesn't hold once `MeshIncident.spec.detected`/`firstSeen` (above) gives the agent the same "new or reopening?" signal locally — [ADR-0009](0009-agent-side-evidence-gathering-and-fleet-correlation.md) moves MCP evidence gathering to the agent on that basis, closing the one remaining cross-cluster network exception this ADR left in place. See that ADR for the full reasoning; nothing about namespace-per-cluster, the object model, or credential bootstrap above depends on where MCP calls happen.
 
 ## Consequences
 
