@@ -13,44 +13,97 @@ talam reads Kubernetes and Istio API objects, runs deterministic analyzers again
 
 ## System topology
 
-Each mesh-bearing cluster runs one [operator](../components/operator/README.md) and one [agent](../components/agent/README.md). Agents report structured [findings](../concepts/finding-and-incident.md) to a central [talam-server](../components/server/README.md), the only component that talks to an LLM provider and the only place fleet-wide history lives.
+### Single-cluster view
+
+Each mesh-bearing cluster runs one [operator](../components/operator/README.md) and one [agent](../components/agent/README.md).
 
 ```mermaid
 graph TB
-    User["👤 SRE / CLI"]
-    Server["<b>talam-server</b><br/>Aggregation, Remediation,<br/>Correlation, History"]
+    subgraph talam["talam-system namespace"]
+        Op["<b>talam-operator</b><br/>Reconciles MeshDiagnostics<br/>Manages RBAC & lifecycle"]
+        Ag["<b>talam-agent</b><br/>Syncs from server<br/>Reconciles CRDs<br/>Applies patches"]
+    end
+    
+    subgraph k8s["Kubernetes cluster"]
+        Api["<b>Kubernetes API</b><br/>(kube-apiserver)"]
+        Istio["<b>Istio Control Plane</b><br/>(istiod)"]
+        Workloads["<b>User Namespaces</b><br/>Istio-injected pods"]
+    end
+    
+    subgraph crds["Custom Resources<br/>(stored in etcd)"]
+        MD["MeshDiagnostics<br/>(config)"]
+        MI["MeshIncident<br/>(findings)"]
+        MR["MeshResolution<br/>(remediation)"]
+        MS["MCPServer<br/>(evidence sources)"]
+        MB["ModelBinding<br/>(LLM config)"]
+    end
+    
+    Op -->|watches| MD
+    Op -->|creates RBAC| Api
+    
+    Ag -->|watches| MI
+    Ag -->|watches| MR
+    Ag -->|watches| MB
+    Ag -->|reads| Api
+    Ag -->|reads xDS| Istio
+    Ag -->|patches| Api
+    Ag -->|patches| Istio
+    
+    Api -->|stores| crds
+    Istio -->|configures| Workloads
+    
+    style talam fill:#0f766e,color:#fff,stroke:#0f766e
+    style Op fill:#0891b2,color:#fff
+    style Ag fill:#0891b2,color:#fff
+    style k8s fill:#f3f4f6,stroke:#0b1220,stroke-width:2px
+    style crds fill:#fff8dc,stroke:#f59e0b,stroke-width:2px
+```
+
+**Key flows:**
+- **Operator** reconciles `MeshDiagnostics` (cluster-scoped config) and sets up RBAC
+- **Agent** watches `MeshIncident` and `MeshResolution` CRDs (synced from server)
+- **Agent** reads live cluster state (API + xDS) to understand what's running
+- **Agent** applies patches to fix misconfigurations (dry-run first, then live)
+- **All state lives in CRDs** — everything is auditable, queryable with kubectl
+
+### Fleet-wide view
+
+Agents from multiple clusters report findings to a central talam-server, which coordinates with an LLM provider:
+
+```mermaid
+graph TB
+    User["👤 SRE / CLI<br/>REST API"]
+    Server["<b>talam-server</b><br/>Findings aggregation<br/>LLM coordination<br/>Proposal broker<br/>Fleet history"]
     LLM["<b>LLM Provider</b><br/>Claude, GPT, etc<br/>(pluggable)"]
     
     User -->|approval| Server
     Server <-->|explain & propose| LLM
     
-    ClusterA["<b>Cluster A</b><br/>(EKS, GKE, on-prem)"]
-    ClusterB["<b>Cluster B</b>"]
+    subgraph ClusterA["Cluster A (EKS/GKE/on-prem)"]
+        OpA["talam-operator"]
+        AgentA["talam-agent"]
+        ApiA["K8s API + Istio"]
+    end
     
-    Server -->|findings| ClusterA
-    Server -->|findings| ClusterB
+    subgraph ClusterB["Cluster B"]
+        OpB["talam-operator"]
+        AgentB["talam-agent"]
+        ApiB["K8s API + Istio"]
+    end
     
-    OpA["<b>talam-operator</b><br/>Lifecycle, RBAC"]
-    AgentA["<b>talam-agent</b><br/>CRD Reconciliation<br/>Apply Proposals"]
-    ApiA["<b>Kubernetes API</b><br/>+ Istio/xDS"]
-    
-    OpB["<b>talam-operator</b>"]
-    AgentB["<b>talam-agent</b>"]
-    ApiB["<b>Kubernetes API</b><br/>+ Istio/xDS"]
-    
-    ClusterA --> OpA
-    ClusterA --> AgentA
-    ClusterA --> ApiA
-    
-    ClusterB --> OpB
-    ClusterB --> AgentB
-    ClusterB --> ApiB
+    Server -->|proposals| ClusterA
+    Server -->|proposals| ClusterB
     
     AgentA -->|findings| Server
     AgentB -->|findings| Server
     
-    ApiA -->|read state| AgentA
-    ApiB -->|read state| AgentB
+    OpA -.->|RBAC| ApiA
+    AgentA -->|patch| ApiA
+    AgentA -->|read state| ApiA
+    
+    OpB -.->|RBAC| ApiB
+    AgentB -->|patch| ApiB
+    AgentB -->|read state| ApiB
     
     style Server fill:#0f766e,color:#fff
     style LLM fill:#0891b2,color:#fff
@@ -58,6 +111,8 @@ graph TB
     style ClusterA fill:#f3f4f6,stroke:#0f766e,stroke-width:2px
     style ClusterB fill:#f3f4f6,stroke:#0f766e,stroke-width:2px
 ```
+
+**Key insight:** The server is the sole authority on what needs fixing (proposals come from server to agents). Agents are the sole writers to their clusters (deterministic reconciliation, no conflicts).
 
 Component-level detail: [operator](../components/operator/README.md) · [agent](../components/agent/README.md) · [server](../components/server/README.md).
 
