@@ -68,13 +68,38 @@ theme = ["docsy/theme"]
       desc = "Source, issues, and pull requests"
 
 [[menu.main]]
+  name = "Getting Started"
+  weight = 5
+  url = "/getting-started/"
+
+[[menu.main]]
   name = "Docs"
   weight = 10
   url = "/docs/"
 
 [[menu.main]]
-  name = "GitHub"
+  name = "Design"
+  weight = 15
+  url = "/design/"
+
+[[menu.main]]
+  name = "Guides"
   weight = 20
+  url = "/guides/"
+
+[[menu.main]]
+  name = "Changelog"
+  weight = 25
+  url = "/changelog/"
+
+[[menu.main]]
+  name = "Contribute"
+  weight = 30
+  url = "/contribute/"
+
+[[menu.main]]
+  name = "GitHub"
+  weight = 40
   url = "https://github.com/nirvanagit/talam"
   [menu.main.params]
     icon = "fa-brands fa-github"

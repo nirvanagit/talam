@@ -38,8 +38,8 @@ One server, many clusters, many agents. A mesh boundary spanning clusters is a f
 
 {{% blocks/section color="dark" type="row" %}}
 
-{{% blocks/feature icon="fa-brands fa-github" title="Contributions welcome!" url="https://github.com/nirvanagit/talam" %}}
-talam is early — v0.1 ships a focused Istio analyzer catalog, manual-approval remediation, and a Kubernetes-native object model end to end. [Read the design docs]({{< relref "/docs" >}}) and open an issue or PR.
+{{% blocks/feature icon="fa-solid fa-rocket" title="Get started in 5 minutes" url="/getting-started/" %}}
+Install on your cluster, trigger a scan, and approve your first remediation. [Quick start →]({{< relref "/getting-started" >}})
 {{% /blocks/feature %}}
 
 {{% blocks/feature icon="fa-solid fa-cubes" title="Everything is an object" %}}
@@ -48,6 +48,10 @@ Incidents, remediation, LLM provider selection, MCP evidence sources — all Kub
 
 {{% blocks/feature icon="fa-solid fa-robot" title="LLM does the talking, not the deciding" %}}
 Detection is rule-based and testable. The LLM's job is exactly two calls per finding — explain, then propose — never origination. See [ADR-0002]({{< relref "/docs/decisions/0002-deterministic-analyzers-then-llm" >}}).
+{{% /blocks/feature %}}
+
+{{% blocks/feature icon="fa-brands fa-github" title="Contributions welcome!" url="https://github.com/nirvanagit/talam" %}}
+talam is early — v0.1 ships a focused Istio analyzer catalog, manual-approval remediation, and a Kubernetes-native object model end to end. [Learn how to contribute →]({{< relref "/contribute" >}})
 {{% /blocks/feature %}}
 
 {{% /blocks/section %}}
