@@ -231,15 +231,17 @@ func (s *Store) Decide(id string, d api.DecisionRequest) (*api.RemediationPropos
 	return p, nil
 }
 
-// RecordOutcome records the agent's apply result. Outcomes are recorded
-// regardless of success — rejected patches and failed dry-runs are history
-// too (docs/concepts/remediation-flow.md). Idempotent: a proposal already in
-// the terminal state this same outcome would produce is treated as success,
-// not an error — the agent retries a report whose HTTP response it never
-// saw (e.g. the POST landed and was processed, but the ack was lost), and
-// that retry must not fail just because the state transition already
-// happened (see internal/agent/resolutionreconciler.go's outcomeReported
-// bookkeeping, ADR-0005).
+// RecordOutcome records what an external system reported after acting on an
+// approved proposal — talam-agent only relays this (ADR-0007), it never
+// produces the outcome itself. Outcomes are recorded regardless of success —
+// rejected patches and failures are history too
+// (docs/concepts/remediation-flow.md). Idempotent: a proposal already in the
+// terminal state this same outcome would produce is treated as success, not
+// an error — the agent retries a report whose HTTP response it never saw
+// (e.g. the POST landed and was processed, but the ack was lost), and that
+// retry must not fail just because the state transition already happened
+// (see internal/agent/resolutionreconciler.go's outcomeReported bookkeeping,
+// ADR-0005).
 func (s *Store) RecordOutcome(id string, o api.OutcomeRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -257,7 +259,7 @@ func (s *Store) RecordOutcome(id string, o api.OutcomeRequest) error {
 	if p.State != api.ProposalApproved {
 		return fmt.Errorf("proposal %q is %s, not Approved", id, p.State)
 	}
-	p.DryRunDiff = o.DryRunDiff
+	p.AppliedBy = o.AppliedBy
 	p.Outcome = o.Detail
 	p.State = wantState
 	s.persistLocked()

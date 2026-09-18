@@ -46,9 +46,10 @@ type Incident struct {
 	ExplainError string `json:"explainError,omitempty"`
 
 	// Complete is computed (never stored) from this incident's proposals: true
-	// once every RemediationProposal for it has been performed — reached
-	// Applied or Failed. A Rejected proposal does not count as performed, and
-	// an incident with zero proposals is never complete. See ADR-0005.
+	// once every RemediationProposal for it has an outcome — reached Applied
+	// or Failed, as reported by whatever external system acted on it (see
+	// ADR-0007). A Rejected proposal does not count, and an incident with
+	// zero proposals is never complete. See ADR-0005.
 	Complete bool `json:"complete"`
 }
 
@@ -84,17 +85,21 @@ type JSONPatchOp struct {
 }
 
 // RemediationProposal is a structured fix proposed by the LLM gateway against
-// an Incident. It never applies without explicit human approval (ADR-0003).
+// an Incident. talam-agent never applies it (ADR-0007) — it's synced down as
+// a MeshResolution for whatever external system (GitOps controller, existing
+// config pipeline, human via kubectl) is subscribed to act on it.
 type RemediationProposal struct {
 	ID         string           `json:"id"`
 	IncidentID string           `json:"incidentId"`
 	Cluster    string           `json:"cluster"`
 	Target     mesh.ResourceRef `json:"target"`
 	// TargetResourceVersion is the target's resourceVersion at the time the
-	// evidence it was proposed from was collected. The agent refuses to apply
-	// this patch if the live object's resourceVersion has since changed —
-	// index-based patches (e.g. "/spec/subsets/1") are only safe against the
-	// exact object shape they were computed from; see internal/agent/applier.go.
+	// evidence it was proposed from was collected. Index-based patches (e.g.
+	// "/spec/subsets/1") are only safe against the exact object shape they
+	// were computed from, so a consuming system should treat a live
+	// resourceVersion mismatch as a reason to refuse the patch rather than
+	// apply it blind — talam-agent no longer performs this check itself
+	// since it no longer applies anything (ADR-0007).
 	TargetResourceVersion string `json:"targetResourceVersion,omitempty"`
 
 	Summary     string        `json:"summary"`
@@ -102,13 +107,16 @@ type RemediationProposal struct {
 	RiskTier    RiskTier      `json:"riskTier"`
 	Patch       []JSONPatchOp `json:"patch"`
 
-	State      ProposalState `json:"state"`
-	CreatedAt  time.Time     `json:"createdAt"`
-	DecidedAt  *time.Time    `json:"decidedAt,omitempty"`
-	DecidedBy  string        `json:"decidedBy,omitempty"`
-	DryRunDiff string        `json:"dryRunDiff,omitempty"`
-	// Outcome records what happened at apply time (dry-run output, apply
-	// error, or success), regardless of result.
+	State     ProposalState `json:"state"`
+	CreatedAt time.Time     `json:"createdAt"`
+	DecidedAt *time.Time    `json:"decidedAt,omitempty"`
+	DecidedBy string        `json:"decidedBy,omitempty"`
+	// AppliedBy identifies the external system or person that reported an
+	// outcome for this proposal — distinct from DecidedBy, which is whoever
+	// approved it. Empty until that system reports (ADR-0007).
+	AppliedBy string `json:"appliedBy,omitempty"`
+	// Outcome records what the external system that applied this proposal
+	// reported back, regardless of result. Empty until that system reports.
 	Outcome string `json:"outcome,omitempty"`
 }
 
@@ -119,10 +127,13 @@ type DecisionRequest struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
-// OutcomeRequest is the agent reporting what happened when it applied (or
-// failed to apply) an approved proposal.
+// OutcomeRequest is talam-agent forwarding what an external system reported
+// after it applied (or failed to apply) an approved proposal — talam-agent
+// is a relay here, never the actor (ADR-0007).
 type OutcomeRequest struct {
-	Success    bool   `json:"success"`
-	DryRunDiff string `json:"dryRunDiff,omitempty"`
-	Detail     string `json:"detail,omitempty"`
+	Success bool `json:"success"`
+	// AppliedBy identifies the external system or person that reported this
+	// outcome — mirrors MeshResolutionStatus.AppliedBy. Optional.
+	AppliedBy string `json:"appliedBy,omitempty"`
+	Detail    string `json:"detail,omitempty"`
 }

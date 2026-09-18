@@ -114,16 +114,16 @@ func (r *Reconciler) ensureRBAC(ctx context.Context, mdName string) error {
 		return err
 	}
 
-	// Read-only on core + Istio API groups; write verbs only on the
-	// patch-application path, scoped to Istio CRDs — never Secret, never RBAC
-	// objects (docs/concepts/security-model.md).
+	// Read-only against every mesh resource, full stop (ADR-0007): the agent
+	// never writes to Secret, RBAC objects, or Istio CRDs — remediation is
+	// applied by whatever external system subscribes to MeshResolution, not
+	// by talam. See docs/concepts/security-model.md.
 	role := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: roleName, Labels: map[string]string{managedByLabel: managedByValue}},
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{""}, Resources: []string{"services", "pods", "endpoints"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"networking.istio.io"}, Resources: []string{"*"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"security.istio.io"}, Resources: []string{"*"}, Verbs: []string{"get", "list", "watch"}},
-			{APIGroups: []string{"networking.istio.io"}, Resources: []string{"destinationrules", "virtualservices", "gateways", "serviceentries"}, Verbs: []string{"patch"}},
 		},
 	}
 	if err := r.applyClusterRole(ctx, role); err != nil {

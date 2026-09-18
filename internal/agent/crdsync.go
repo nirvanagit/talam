@@ -152,10 +152,12 @@ func (s *CRDSync) upsertResolution(ctx context.Context, p api.RemediationProposa
 		"explanation":           p.Explanation,
 		"riskTier":              string(p.RiskTier),
 		"patch":                 patchOps,
-		// Authorized once a human has approved (or the reconciler has already
-		// acted on) this proposal server-side. Never true while Pending or
+		// Advisory only (ADR-0007): a subscribing system may treat this as a
+		// gate on its own automation, but talam-agent never reads it — it
+		// never acts on a MeshResolution at all. True once a human has
+		// approved this proposal server-side; never true while Pending or
 		// Rejected — see ADR-0005 and ADR-0003.
-		"triggered": p.State != api.ProposalPending && p.State != api.ProposalRejected,
+		"approved": p.State != api.ProposalPending && p.State != api.ProposalRejected,
 	}
 
 	existing, err := res.Get(ctx, p.ID, metav1.GetOptions{})
@@ -166,8 +168,7 @@ func (s *CRDSync) upsertResolution(ctx context.Context, p api.RemediationProposa
 			"metadata":   map[string]any{"name": p.ID, "namespace": s.Namespace},
 			"spec":       spec,
 			"status": map[string]any{
-				"phase":     string(p.State),
-				"performed": false,
+				"phase": string(p.State),
 			},
 		}}
 		_, err := res.Create(ctx, obj, metav1.CreateOptions{})
@@ -184,15 +185,16 @@ func (s *CRDSync) upsertResolution(ctx context.Context, p api.RemediationProposa
 		return err
 	}
 
-	// Keep status.phase mirrored from the server for as long as this
-	// resolution hasn't been locally performed — this is how a Rejected (or
-	// any other non-apply) decision actually shows up via kubectl, since
-	// nothing else ever touches phase for a resolution that never triggers.
-	// Once Performed is true, ResolutionReconciler owns status exclusively —
-	// see MeshResolutionStatus's doc comment — so phase is left alone here
-	// even if the server hasn't caught up yet (e.g. outcome-report lag).
-	performed, _, _ := unstructured.NestedBool(existing.Object, "status", "performed")
-	if performed {
+	// Keep status.phase mirrored from the server for as long as no external
+	// system has reported an outcome — this is how a Rejected (or any other
+	// decision) actually shows up via kubectl, since nothing else ever
+	// touches phase for a resolution nobody has acted on. Once
+	// status.outcome is set, ResolutionReconciler owns Phase/OutcomeReported
+	// exclusively — see MeshResolutionStatus's doc comment (ADR-0007) — so
+	// phase is left alone here even if the server hasn't caught up yet (e.g.
+	// outcome-relay lag).
+	outcome, _, _ := unstructured.NestedString(existing.Object, "status", "outcome")
+	if outcome != "" {
 		return nil
 	}
 	statusPatch, err := json.Marshal(map[string]any{"status": map[string]any{"phase": string(p.State)}})

@@ -1,8 +1,9 @@
 // IncidentReconciler watches local MeshIncident objects and, purely from
 // local MeshResolution objects (no talam-server round-trip needed), computes
 // status.resolutionRefs and status.complete — true once every resolution
-// referencing the incident has been Performed. A Rejected resolution does
-// not count as performed, so a rejected-only incident stays incomplete
+// referencing the incident has a non-empty status.outcome, reported by
+// whatever external system applied it (ADR-0007). A Rejected resolution
+// never gets an outcome, so a rejected-only incident stays incomplete
 // (ADR-0005).
 package agent
 
@@ -70,8 +71,8 @@ func (r *IncidentReconciler) reconcileOne(ctx context.Context, inc *unstructured
 	complete := len(resolutions) > 0
 	for _, res := range resolutions {
 		refs = append(refs, map[string]any{"name": res.GetName()})
-		performed, _, _ := unstructured.NestedBool(res.Object, "status", "performed")
-		if !performed {
+		outcome, _, _ := unstructured.NestedString(res.Object, "status", "outcome")
+		if outcome == "" {
 			complete = false
 		}
 	}

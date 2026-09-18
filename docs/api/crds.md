@@ -83,12 +83,12 @@ spec:
   targetResourceVersion: "3627"
   riskTier: Medium
   patch: [{op: remove, path: /spec/subsets/1}]
-  triggered: false   # the one field a human sets — see below
+  approved: false   # advisory only — see below (ADR-0007)
 status:
   phase: Pending
-  performed: false
+  outcome: ""       # set by whatever external system applies the patch
 ```
 
-Both are agent-owned, not created by talam-server directly — see [ADR-0005](../decisions/0005-crd-native-incidents-and-resolutions.md) for why. `talam-agent`'s Sync loop mirrors talam-server's `Incident`/`RemediationProposal` objects into these every `--sync-interval` (default 15s); `spec.triggered` flips to `true` once a proposal is approved (dashboard or `talamctl`) — never set by talam-server or by any reconciler directly. `ResolutionReconciler` watches for `spec.triggered && !status.performed`, applies the patch the same resourceVersion-gated way as before, and writes `status.phase`/`status.performed`/`status.dryRunDiff`. `IncidentReconciler` watches `MeshIncident` objects and sets `status.complete = true` once every `MeshResolution` referencing it (`spec.incidentRef`) has `status.performed == true` — a `Rejected` resolution does not count, so a rejected-only incident stays visibly incomplete.
+Both are agent-owned, not created by talam-server directly — see [ADR-0005](../decisions/0005-crd-native-incidents-and-resolutions.md) for why. `talam-agent`'s Sync loop mirrors talam-server's `Incident`/`RemediationProposal` objects into these every `--sync-interval` (default 15s); `spec.approved` flips to `true` once a proposal is approved (dashboard or `talamctl`) — never set by talam-server or by any reconciler directly, and never read by talam-agent either. talam-agent never applies `spec.patch` itself ([ADR-0007](../decisions/0007-agent-never-applies-remediation.md)): `MeshResolution` is the artifact an external system (a GitOps controller, an existing config pipeline, `kubectl` directly) subscribes to and acts on, writing `status.outcome` (`Applied`/`Failed`), `status.appliedBy`, and `status.appliedAt` once it does. `ResolutionReconciler` only watches for `status.outcome` becoming non-empty and relays it to talam-server — it never touches a mesh resource. `IncidentReconciler` watches `MeshIncident` objects and sets `status.complete = true` once every `MeshResolution` referencing it (`spec.incidentRef`) has a non-empty `status.outcome` — a `Rejected` resolution never gets one, so a rejected-only incident stays visibly incomplete.
 
 `kubectl get meshincidents,meshresolutions -n talam-system` works without hitting talam-server at all.

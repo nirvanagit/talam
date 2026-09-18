@@ -1,6 +1,6 @@
 # Object model
 
-**Related:** reads [`ADR-0001`](../decisions/0001-server-agent-operator-split.md), [`ADR-0005`](../decisions/0005-crd-native-incidents-and-resolutions.md), [`ADR-0006`](../decisions/0006-mcp-evidence-enrichment.md), [`finding-and-incident.md`](finding-and-incident.md), [`remediation-flow.md`](remediation-flow.md); read by [`../api/crds.md`](../api/crds.md), [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md), [`../components/mesh-mcp/README.md`](../components/mesh-mcp/README.md)
+**Related:** reads [`ADR-0001`](../decisions/0001-server-agent-operator-split.md), [`ADR-0005`](../decisions/0005-crd-native-incidents-and-resolutions.md), [`ADR-0006`](../decisions/0006-mcp-evidence-enrichment.md), [`ADR-0007`](../decisions/0007-agent-never-applies-remediation.md), [`finding-and-incident.md`](finding-and-incident.md), [`remediation-flow.md`](remediation-flow.md); read by [`../api/crds.md`](../api/crds.md), [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md), [`../components/mesh-mcp/README.md`](../components/mesh-mcp/README.md)
 
 talam's operating principle: **every piece of state that matters is a Kubernetes object, and every action is a controller reacting to one.** Not a REST call that happens to also update a store, not a message on a queue — an object with a `spec` (desired/observed state) and a `status` (what happened), sitting in etcd, watchable with `kubectl get`, diffable, and reconcilable by exactly one owner. This doc is the map of that object graph: every object, what owns it, what references what, and — for the one place the model isn't fully closed yet — what's proposed to finish it.
 
@@ -92,7 +92,7 @@ Namespaced. Full schema and example: [`../api/crds.md#meshincident--meshresoluti
 
 ### MeshResolution
 
-Namespaced. Full schema: [`../api/crds.md#meshincident--meshresolution`](../api/crds.md#meshincident--meshresolution). The CRD realization of `RemediationProposal`. `spec.triggered` is the one field a human authorizes (via the dashboard → talam-server → next Sync tick, or a direct `kubectl patch` as an escape hatch) — never set by talam-server or any reconciler. `status.phase` mirrors the server until `status.performed` goes true, at which point `ResolutionReconciler` owns status exclusively; `status.outcomeReported` tracks whether talam-server has acknowledged the result independently of whether the apply itself succeeded, so a network blip reporting the outcome gets retried without ever risking a second apply.
+Namespaced. Full schema: [`../api/crds.md#meshincident--meshresolution`](../api/crds.md#meshincident--meshresolution). The CRD realization of `RemediationProposal`. talam-agent never applies `spec.patch` itself ([ADR-0007](../decisions/0007-agent-never-applies-remediation.md)) — this object is what an external system (GitOps controller, config pipeline, `kubectl` directly) subscribes to and acts on. `spec.approved` mirrors a human's dashboard decision but is advisory only; talam-agent never reads it to decide anything, because it never decides to act. `status.phase` mirrors the server until `status.outcome` goes non-empty — written by whatever external system applied the patch, not by talam — at which point `ResolutionReconciler` owns status exclusively; `status.outcomeReported` tracks whether talam-server has acknowledged the relayed result independently of whether the apply itself succeeded, so a network blip relaying the outcome gets retried without needing the external system to report twice.
 
 ### ModelBinding
 
@@ -106,11 +106,12 @@ Namespaced, server-owned like `ModelBinding`. Full schema: [`../api/crds.md#mcps
 
 1. Agent's analyzer engine finds an orphaned `DestinationRule` subset. *(Proposed: upserts a `MeshFinding`.)* Reporter pushes it to talam-server.
 2. talam-server correlates by fingerprint into an `Incident`, calls the LLM gateway (explain, then propose), stores the result.
-3. Agent's `CRDSync` pulls `?cluster=X`, creates a `MeshIncident` (spec = findings, status = explanation) and a `MeshResolution` (spec.triggered = false).
+3. Agent's `CRDSync` pulls `?cluster=X`, creates a `MeshIncident` (spec = findings, status = explanation) and a `MeshResolution` (spec.approved = false).
 4. A human reads the explanation and patch in the dashboard, clicks Approve. talam-server's REST store flips the proposal to `Approved`.
-5. Next `CRDSync` tick: `MeshResolution.spec.triggered` becomes `true`.
-6. `ResolutionReconciler` sees `triggered && !performed`, dry-runs, applies (resourceVersion-gated — see the applier hardening from the earlier review round), writes `status.phase=Applied`, `status.performed=true`, and reports the outcome back to talam-server, retrying independently via `status.outcomeReported` if that report fails.
-7. `IncidentReconciler` sees the referenced `MeshResolution` performed, sets `MeshIncident.status.complete = true`.
-8. Next scan: the orphaned subset is gone, the finding clears, talam-server marks the `Incident` `Resolved` — independently computing the same `Complete` value the CR already has, so `kubectl` and the dashboard never disagree.
+5. Next `CRDSync` tick: `MeshResolution.spec.approved` becomes `true` — advisory metadata only, nothing in talam reconciles on it.
+6. Whatever external system is subscribed to `MeshResolution` in that cluster — a GitOps controller, a config pipeline, or a human running `kubectl` — applies the patch on its own, then writes `status.outcome=Applied`, `status.appliedBy`, `status.appliedAt` back onto the object.
+7. `ResolutionReconciler` sees `status.outcome` go non-empty, relays it to talam-server, and sets `status.outcomeReported=true` — retrying only this relay, never touching a mesh resource, if it fails.
+8. `IncidentReconciler` sees the referenced `MeshResolution` has an outcome, sets `MeshIncident.status.complete = true`.
+9. Next scan: the orphaned subset is gone, the finding clears, talam-server marks the `Incident` `Resolved` — independently computing the same `Complete` value the CR already has, so `kubectl` and the dashboard never disagree.
 
-Every step past #2 is an object write a controller made in reaction to another object changing. Step 2 and the two REST legs of #3/#6 are the only places this crosses the trust boundary ADR-0001 draws — and they're pull/push REST calls specifically *because* an object can't be watched across a boundary neither side has credentials to cross.
+Every step past #2 is an object write a controller made in reaction to another object changing, except #6 — the one step in this walk that talam doesn't perform or control at all ([ADR-0007](../decisions/0007-agent-never-applies-remediation.md)). Step 2 and the two REST legs of #3/#7 are the only places this crosses the trust boundary ADR-0001 draws — and they're pull/push REST calls specifically *because* an object can't be watched across a boundary neither side has credentials to cross.

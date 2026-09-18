@@ -1,6 +1,6 @@
 # ADR-0006: MCP-backed evidence enrichment stays deterministic, server-side, and pre-fetch
 
-**Status:** Accepted
+**Status:** Accepted — the *server-side* placement below is superseded by [`ADR-0009`](0009-agent-side-evidence-gathering-and-fleet-correlation.md), which moves MCP calls to the agent (same cluster as the MCP server, no cross-cluster reachability needed). The *deterministic, never agentic* principle this ADR establishes is unchanged and is the one thing ADR-0009 explicitly carries forward.
 **Related:** reads [`ADR-0001`](0001-server-agent-operator-split.md), [`ADR-0002`](0002-deterministic-analyzers-then-llm.md); affects [`../components/server/README.md`](../components/server/README.md), [`../concepts/object-model.md`](../concepts/object-model.md)
 
 ## Context

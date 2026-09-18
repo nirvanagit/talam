@@ -62,10 +62,11 @@ type MeshIncidentStatus struct {
 	ResolutionRefs []LocalObjectReference `json:"resolutionRefs,omitempty"`
 
 	// Complete is set by the incident reconciler once every resolution in
-	// ResolutionRefs has been Performed (Applied or Failed — a Rejected
-	// resolution does NOT count; see ADR-0005). False, including when
-	// ResolutionRefs is empty, until at least one resolution has been
-	// performed.
+	// ResolutionRefs has a non-empty status.outcome (Succeeded or Failed,
+	// reported by whatever external system applied it — a Rejected
+	// resolution does NOT count; see ADR-0005, amended by ADR-0007). False,
+	// including when ResolutionRefs is empty, until at least one resolution
+	// has an outcome.
 	Complete bool `json:"complete"`
 }
 
@@ -123,9 +124,13 @@ func (in *MeshIncidentList) DeepCopyObject() runtime.Object {
 
 // --- MeshResolution ------------------------------------------------------------
 
-// MeshResolutionSpec is the CRD realization of api.RemediationProposal.
-// Populated by the Sync loop; the one field a human (via the dashboard, or
-// directly via kubectl as an escape hatch) is expected to flip is Triggered.
+// MeshResolutionSpec is the CRD realization of api.RemediationProposal — the
+// proposed fix, in full: target, patch, and the resourceVersion it was
+// computed against. talam never applies it (see ADR-0007); this object is
+// the artifact an external system (GitOps controller, existing config
+// pipeline, human via kubectl) subscribes to and acts on. Populated by the
+// Sync loop; the one field a human or process is expected to flip is
+// Approved.
 type MeshResolutionSpec struct {
 	// IncidentRef names the MeshIncident (same namespace) this resolves.
 	IncidentRef string `json:"incidentRef"`
@@ -140,39 +145,45 @@ type MeshResolutionSpec struct {
 	RiskTier              api.RiskTier      `json:"riskTier"`
 	Patch                 []api.JSONPatchOp `json:"patch"`
 
-	// Triggered authorizes the resolution reconciler to apply this patch.
-	// Manual only (ADR-0003): set true only as a result of approval in the
-	// dashboard (mirrored here by the Sync loop) or a direct kubectl patch.
-	// Never set true by talam-server or by any reconciler in this repo.
-	Triggered bool `json:"triggered"`
+	// Approved records that a human or process has reviewed and endorsed
+	// this proposal (mirrored here by the Sync loop from a server-side
+	// approval, or set directly via kubectl as an escape hatch). It is
+	// advisory only — talam-agent never reads it to decide whether to act,
+	// because talam-agent never acts (ADR-0007). A subscribing system is
+	// free to honor it as a gate on its own automation, or to ignore it
+	// entirely and apply on its own criteria.
+	Approved bool `json:"approved"`
 }
 
-// MeshResolutionStatus reports what the resolution reconciler did.
+// MeshResolutionStatus reports the proposal's outcome once some external
+// system has acted on it. talam-agent never populates Outcome, AppliedBy, or
+// AppliedAt itself — those are written by whatever applied the patch
+// (kubectl, a GitOps controller, a custom operator), typically via its own
+// status subresource patch. See ADR-0007.
 //
-// Field ownership (see ADR-0005): Phase is synced from talam-server on every
-// tick *until* Performed becomes true — this is how a Rejected decision (or
-// any other server-side transition that never triggers a local apply) still
-// shows up here. Once Performed is true, ResolutionReconciler is the sole
-// owner of everything below it; the sync loop never touches this object's
-// status again, including Phase — Applied/Failed are terminal local facts,
-// not something to keep re-mirroring from a server whose own view of "did
-// this apply" only updates once OutcomeReported succeeds.
+// Field ownership (see ADR-0005, amended by ADR-0007): Phase is synced from
+// talam-server on every tick *until* Outcome becomes non-empty — this is how
+// a Rejected decision still shows up here even though nothing local ever
+// acts on it. Once Outcome is set, ResolutionReconciler is the sole owner of
+// OutcomeReported; the sync loop never touches this object's status again.
 type MeshResolutionStatus struct {
 	// Phase mirrors api.ProposalState ("Pending" | "Approved" | "Rejected" | "Applied" | "Failed").
 	Phase string `json:"phase,omitempty"`
-	// Performed is true once Phase is Applied or Failed — an apply was
-	// actually attempted, as opposed to Rejected (a decision not to act) or
-	// still Pending. This is what the incident reconciler waits on; it never
-	// changes back to false and never gates a re-apply.
-	Performed bool `json:"performed"`
+	// Outcome is set by the external system that applied (or attempted to
+	// apply) this proposal — "Applied" or "Failed" (api.ProposalApplied /
+	// api.ProposalFailed). Empty means no external system has reported back
+	// yet. This is what the incident reconciler waits on; once non-empty it
+	// never resets. ResolutionReconciler copies it into Phase once relayed.
+	Outcome string `json:"outcome,omitempty"`
+	// AppliedBy identifies whatever set Outcome — a GitOps controller name,
+	// a person's identity, a pipeline run ID. Free text, optional.
+	AppliedBy string `json:"appliedBy,omitempty"`
 	// OutcomeReported is true once POST /v1/proposals/{id}/outcome has
-	// succeeded. Performed can be true while this is still false (the apply
-	// happened but reporting it back to talam-server failed) — the
-	// resolution reconciler retries the report, never the apply, until this
-	// flips true, so the server's durable history doesn't get stuck out of
-	// sync with what the cluster actually did.
+	// succeeded for the current Outcome. The resolution reconciler retries
+	// only this report — never anything that touches the mesh — until it
+	// flips true, so talam-server's durable history doesn't get stuck out of
+	// sync with what the external system reported.
 	OutcomeReported bool         `json:"outcomeReported"`
-	DryRunDiff      string       `json:"dryRunDiff,omitempty"`
 	Detail          string       `json:"detail,omitempty"`
 	AppliedAt       *metav1.Time `json:"appliedAt,omitempty"`
 }

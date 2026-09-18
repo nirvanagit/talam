@@ -11,13 +11,14 @@ talam is in active development. Here's what's planned.
 - ✅ Deterministic analyzers (Istio-specific)
 - ✅ LLM-powered explanations and proposals
 - ✅ Human-in-the-loop approval workflow
+- ✅ talam-agent never applies remediation — proposals are exposed via `MeshResolution` for an external system (GitOps controller, config pipeline, `kubectl`) to subscribe to and act on ([ADR-0007](decisions/0007-agent-never-applies-remediation.md))
 - ✅ MCP-backed evidence enrichment
 - ✅ Full audit trail (all state in CRDs)
 - ✅ Kubernetes-native configuration (MeshDiagnostics, MCPServer, ModelBinding)
 
 **Known limitations:**
 - Istio only (other meshes supported in v0.2+)
-- Manual approval required (no auto-apply)
+- Manual approval required, and closing the loop needs an external system subscribed to `MeshResolution` in-cluster — no such system, no automatic apply, only the `kubectl` escape hatch
 - Single cluster per agent (federation in v0.2)
 - LLM provider via env var (ModelBinding CRD in v0.2)
 
@@ -25,7 +26,7 @@ talam is in active development. Here's what's planned.
 
 ## v0.2 (Q4 2026)
 
-**Multi-mesh support and auto-apply policies.**
+**Multi-mesh support and richer external-system integration.**
 
 ### Multi-Mesh
 - [ ] Analyzer backend for Linkerd
@@ -33,11 +34,12 @@ talam is in active development. Here's what's planned.
 - [ ] Mesh-agnostic remediation proposals
 - [ ] Test suite across all three meshes
 
-### Auto-Apply Policies
-- [ ] `RemediationPolicy` CRD: define which proposals auto-apply
-- [ ] Dry-run validation before apply (already implemented, now opt-in)
-- [ ] Progressive rollout: canary apply to 1 cluster, then all
-- [ ] Automatic rollback on incident regression
+### External-System Integration
+talam still never applies remediation itself ([ADR-0007](decisions/0007-agent-never-applies-remediation.md)) — this phase is about making the hand-off to whatever system does apply it richer, not about talam taking that job back.
+- [ ] `RemediationPolicy` CRD: define which proposals auto-*approve* (`spec.approved`), still purely advisory metadata for a subscribing system to honor or ignore
+- [ ] GitOps-native mode: render an approved proposal as a PR against the repo an external GitOps controller already reconciles from, instead of (or alongside) a raw `MeshResolution` patch
+- [ ] Reference `MeshResolution` watcher/controller (opt-in, not part of talam-agent) for clusters with no existing config-management system, so the `kubectl` escape hatch has an automatable alternative
+- [ ] Outcome-relay backpressure: surface in the dashboard when an approved `MeshResolution` has sat with no `status.outcome` for longer than expected — nothing subscribed, or the external system stalled
 
 ### Fleet Management
 - [ ] Multi-cluster federation: correlate incidents across clusters
@@ -60,7 +62,7 @@ talam is in active development. Here's what's planned.
 - [ ] Prometheus metrics
   - Scan latency (time to run all analyzers)
   - Proposal quality (user approval rate)
-  - Apply success rate (how many applied cleanly)
+  - Reported outcome success rate (how many external-system-reported outcomes were `Applied` vs `Failed`)
   - Incident MTTD (mean time to detection)
 
 - [ ] Notifications

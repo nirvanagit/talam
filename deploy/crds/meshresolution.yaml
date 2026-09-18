@@ -1,7 +1,11 @@
-# See ADR-0005 (docs/decisions/0005-crd-native-incidents-and-resolutions.md).
-# spec.triggered is the only field a human (via the dashboard, or kubectl as
-# an escape hatch) is expected to set — everything else is agent-managed,
-# synced from talam-server.
+# See ADR-0005 (docs/decisions/0005-crd-native-incidents-and-resolutions.md)
+# and ADR-0007 (docs/decisions/0007-agent-never-applies-remediation.md).
+# talam-agent never applies spec.patch itself — this object is the artifact
+# an external system (GitOps controller, existing config pipeline, human via
+# kubectl) subscribes to and acts on. spec.approved is advisory only: a
+# subscribing system may honor it as a gate on its own automation, or ignore
+# it. status.outcome/appliedBy/appliedAt are written by whatever system
+# applied the patch, not by talam.
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -28,12 +32,15 @@ spec:
         - name: Risk
           type: string
           jsonPath: .spec.riskTier
-        - name: Triggered
+        - name: Approved
           type: boolean
-          jsonPath: .spec.triggered
+          jsonPath: .spec.approved
         - name: Phase
           type: string
           jsonPath: .status.phase
+        - name: Outcome
+          type: string
+          jsonPath: .status.outcome
       schema:
         openAPIV3Schema:
           type: object
@@ -55,14 +62,14 @@ spec:
                 summary: { type: string }
                 explanation: { type: string }
                 riskTier: { type: string, enum: ["Low", "Medium", "High"] }
-                triggered: { type: boolean, default: false }
+                approved: { type: boolean, default: false }
             status:
               type: object
               x-kubernetes-preserve-unknown-fields: true
               properties:
                 phase: { type: string, enum: ["Pending", "Approved", "Rejected", "Applied", "Failed"] }
-                performed: { type: boolean }
+                outcome: { type: string, enum: ["", "Applied", "Failed"] }
+                appliedBy: { type: string }
                 outcomeReported: { type: boolean }
-                dryRunDiff: { type: string }
                 detail: { type: string }
                 appliedAt: { type: string, format: date-time }

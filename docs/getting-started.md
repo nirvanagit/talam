@@ -105,7 +105,7 @@ Watch incidents appear:
 kubectl get meshincidents -n demo -w
 ```
 
-## 5. Approve and apply a remediation
+## 5. Approve a remediation
 
 List pending resolutions:
 
@@ -119,13 +119,28 @@ View a resolution's details:
 kubectl get meshresolution <name> -n demo -o yaml
 ```
 
-The `spec.proposal` contains the dry-run output. When ready, approve by setting `spec.approved: true`:
+`spec.patch` is the proposed fix, pinned to the exact `spec.targetResourceVersion` it was computed against. When ready, approve it via the dashboard or `talamctl` — this flips `spec.approved: true` on the object (advisory metadata; see [ADR-0007](decisions/0007-agent-never-applies-remediation.md)):
 
 ```bash
 kubectl patch meshresolution <name> -n demo -p '{"spec":{"approved":true}}'
 ```
 
-Watch the agent apply it:
+**talam does not apply this patch itself.** `MeshResolution` is the artifact you (or a GitOps controller, or an existing config pipeline already watching this cluster) subscribe to and act on. For this walkthrough, apply it by hand:
+
+```bash
+# Read spec.target and spec.patch from the resolution above, then:
+kubectl patch destinationrule <target-name> -n demo \
+  --type=json -p "$(kubectl get meshresolution <name> -n demo -o jsonpath='{.spec.patch}')"
+```
+
+Then report the outcome back onto the resolution so talam's incident tracking closes the loop:
+
+```bash
+kubectl patch meshresolution <name> -n demo --subresource=status -p \
+  '{"status":{"outcome":"Applied","appliedBy":"me","appliedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}}'
+```
+
+Watch the agent relay it to talam-server:
 
 ```bash
 kubectl logs -n talam-system deployment/talam-agent -f
@@ -151,10 +166,10 @@ kubectl get meshincident <incident-name> -n demo -o yaml
 - Verify the cluster has actual misconfigurations (talam detects real issues, not test noise)
 - Check MeshDiagnostics is applied and scanInterval has passed
 
-**Resolution won't apply?**
-- Verify `spec.approved: true` is set
-- Check agent logs for apply errors
-- Run `kubectl auth can-i patch destinationrules --as=system:serviceaccount:talam-system:talam-agent` to verify RBAC
+**Resolution's outcome isn't showing up on the incident?**
+- Verify `status.outcome` is actually set on the `MeshResolution` (talam-agent never sets this itself — see [ADR-0007](decisions/0007-agent-never-applies-remediation.md))
+- Check `status.outcomeReported` — if `false`, the agent hasn't successfully relayed it to talam-server yet
+- Check agent logs for relay errors: `kubectl logs -n talam-system deployment/talam-agent -f`
 
 **Can't see mesh resources?**
 - Verify Istio is installed: `kubectl get ns istio-system`
