@@ -13,6 +13,7 @@ ADRs capture *why*, not *what* — the "what" lives in [`architecture/`](../arch
 | [ADR-0005](0005-crd-native-incidents-and-resolutions.md) | Incidents and remediation are Kubernetes CRDs, agent-owned, synced from server | Accepted | [agent](../components/agent/README.md), [server](../components/server/README.md), [finding-and-incident](../concepts/finding-and-incident.md), [remediation-flow](../concepts/remediation-flow.md) |
 | [ADR-0006](0006-mcp-evidence-enrichment.md) | MCP-backed evidence enrichment stays deterministic, server-side, and pre-fetch | Accepted | [server](../components/server/README.md), [mesh-mcp](../components/mesh-mcp/README.md) |
 | [ADR-0007](0007-agent-never-applies-remediation.md) | talam-agent never applies remediation; external systems subscribe and act | Accepted | [agent](../components/agent/README.md), [remediation-flow](../concepts/remediation-flow.md), [security-model](../concepts/security-model.md); supersedes the apply mechanism in [ADR-0003](0003-human-in-the-loop-remediation.md) |
+| [ADR-0008](0008-kubernetes-native-fleet-transport.md) | Fleet coordination is Kubernetes-native — agent and server exchange objects, not REST calls | Accepted | [agent](../components/agent/README.md), [server](../components/server/README.md), [operator](../components/operator/README.md); supersedes the REST transport in [ADR-0001](0001-server-agent-operator-split.md) and the agent-owned CRD mechanism in [ADR-0005](0005-crd-native-incidents-and-resolutions.md) |
 
 ## Template
 

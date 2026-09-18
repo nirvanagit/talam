@@ -1,6 +1,8 @@
 # Architecture overview
 
-**Related:** reads [`0001`](../decisions/0001-server-agent-operator-split.md), [`0002`](../decisions/0002-deterministic-analyzers-then-llm.md), [`0003`](../decisions/0003-human-in-the-loop-remediation.md), [`0004`](../decisions/0004-mesh-agnostic-analyzer-interface.md), [`0007`](../decisions/0007-agent-never-applies-remediation.md); links out to every node under [`../components/`](../components/) and [`../concepts/`](../concepts/)
+**Related:** reads [`0001`](../decisions/0001-server-agent-operator-split.md), [`0002`](../decisions/0002-deterministic-analyzers-then-llm.md), [`0003`](../decisions/0003-human-in-the-loop-remediation.md), [`0004`](../decisions/0004-mesh-agnostic-analyzer-interface.md), [`0007`](../decisions/0007-agent-never-applies-remediation.md), [`0008`](../decisions/0008-kubernetes-native-fleet-transport.md); links out to every node under [`../components/`](../components/) and [`../concepts/`](../concepts/)
+
+**Note:** the topology diagrams and REST-call descriptions below (`GET /v1/incidents`, `POST /v1/findings`, etc.) describe the v0.1 transport, which [ADR-0008](../decisions/0008-kubernetes-native-fleet-transport.md) supersedes with cross-cluster Kubernetes watches. Diagrams pending an update to match; see the ADR for the current design.
 
 talam reads Kubernetes and Istio API objects, runs deterministic analyzers against them, and hands the results to an LLM to explain in plain English — the same loop k8sgpt runs one layer down the stack. talam's failures live one layer up: not "pod won't schedule" but "pod is healthy, mesh routing is not."
 

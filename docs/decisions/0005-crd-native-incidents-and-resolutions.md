@@ -1,6 +1,6 @@
 # ADR-0005: Incidents and remediation are Kubernetes CRDs, agent-owned, synced from server
 
-**Status:** Accepted — the apply step described below is superseded by [`ADR-0007`](0007-agent-never-applies-remediation.md); the CRD-native design (three reconciler loops, spec/status ownership split) is unchanged.
+**Status:** Accepted — the apply step described below is superseded by [`ADR-0007`](0007-agent-never-applies-remediation.md); the REST-based sync mechanism and "agent creates MeshIncident/MeshResolution in its own cluster" ownership are superseded by [`ADR-0008`](0008-kubernetes-native-fleet-transport.md) (MeshIncident becomes server-owned; the sync transport is cross-cluster Kubernetes watches, not REST polling). The core insight — remediation state as Kubernetes objects, not REST-store rows — is what both later ADRs build on, not what they replace.
 **Related:** reads [`ADR-0001`](0001-server-agent-operator-split.md), [`ADR-0003`](0003-human-in-the-loop-remediation.md), [`../concepts/finding-and-incident.md`](../concepts/finding-and-incident.md), [`../concepts/remediation-flow.md`](../concepts/remediation-flow.md); affects [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md), [`../api/crds.md`](../api/crds.md)
 
 ## Context

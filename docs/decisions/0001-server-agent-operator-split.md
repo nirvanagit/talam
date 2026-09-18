@@ -1,6 +1,6 @@
 # ADR-0001: Split into server, agent, and operator instead of one binary
 
-**Status:** Accepted
+**Status:** Accepted — REST transport superseded by [`ADR-0008`](0008-kubernetes-native-fleet-transport.md); the three-component split and its trust-boundary principle (server holds no credentials into a spoke cluster it doesn't own) are unchanged.
 **Related:** affects [`../components/operator/README.md`](../components/operator/README.md), [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md); see [`../architecture/overview.md#system-topology`](../architecture/overview.md#system-topology)
 
 ## Context
