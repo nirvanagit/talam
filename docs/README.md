@@ -7,15 +7,17 @@ talam's documentation lives entirely in markdown, organized in this folder. GitH
 New to talam? Start here:
 
 1. **[Getting Started](getting-started.md)** — Install, run your first scan, approve a remediation (5 min)
-2. **[Architecture Overview](architecture/overview.md)** — Understand the big picture
-3. **[Design System](design.md)** — Brand, colors, UI principles
+2. **[Architecture Overview](architecture/overview.md)** — System design: operator, server, agent, incident/remediation flow
+3. **[Roadmap](roadmap.md)** — What's planned (v0.2: multi-mesh, auto-apply; v0.3: observability)
+4. **[Design System](design.md)** — Brand, colors, UI principles
 
 ## For Everyone Else
 
 - **[Guides](guides.md)** — kubectl recipes, common tasks, troubleshooting
 - **[Design System](design.md)** — Brand identity, colors, typography, visual principles
+- **[Roadmap](roadmap.md)** — What's coming: multi-mesh, auto-apply, observability, federation
 - **[Contribute](contribute.md)** — How to submit code, report bugs, add analyzers
-- **[Changelog](changelog.md)** — Release notes, roadmap, breaking changes
+- **[Changelog](changelog.md)** — Release notes, breaking changes, security contact
 
 ## Technical Deep Dives
 
@@ -45,6 +47,7 @@ The documentation graph below organizes all technical details:
 ### Getting started
 - [`getting-started.md`](getting-started.md) — install, first scan, first remediation
 - [`guides.md`](guides.md) — kubectl recipes and quick reference
+- [`roadmap.md`](roadmap.md) — v0.1 current state, v0.2-v0.4+ planned features
 
 ### Design and contribution
 - [`design.md`](design.md) — brand, colors, typography, UI principles
