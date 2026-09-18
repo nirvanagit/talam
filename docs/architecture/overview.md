@@ -1,8 +1,8 @@
 # Architecture overview
 
-**Related:** reads [`0001`](../decisions/0001-server-agent-operator-split.md), [`0002`](../decisions/0002-deterministic-analyzers-then-llm.md), [`0003`](../decisions/0003-human-in-the-loop-remediation.md), [`0004`](../decisions/0004-mesh-agnostic-analyzer-interface.md), [`0007`](../decisions/0007-agent-never-applies-remediation.md), [`0008`](../decisions/0008-kubernetes-native-fleet-transport.md); links out to every node under [`../components/`](../components/) and [`../concepts/`](../concepts/)
+**Related:** reads [`0001`](../decisions/0001-server-agent-operator-split.md), [`0002`](../decisions/0002-deterministic-analyzers-then-llm.md), [`0003`](../decisions/0003-human-in-the-loop-remediation.md), [`0004`](../decisions/0004-mesh-agnostic-analyzer-interface.md), [`0007`](../decisions/0007-agent-never-applies-remediation.md), [`0008`](../decisions/0008-kubernetes-native-fleet-transport.md), [`0009`](../decisions/0009-agent-side-evidence-gathering-and-fleet-correlation.md); links out to every node under [`../components/`](../components/) and [`../concepts/`](../concepts/)
 
-**Note:** the topology diagrams and REST-call descriptions below (`GET /v1/incidents`, `POST /v1/findings`, etc.) describe the v0.1 transport, which [ADR-0008](../decisions/0008-kubernetes-native-fleet-transport.md) supersedes with cross-cluster Kubernetes watches. Diagrams pending an update to match; see the ADR for the current design.
+**Note:** the fleet-wide diagram and REST-call descriptions further below (`GET /v1/incidents`, `POST /v1/findings`, etc.) still describe the v0.1 transport, which [ADR-0008](../decisions/0008-kubernetes-native-fleet-transport.md) supersedes with cross-cluster Kubernetes watches. That diagram is pending an update; the single-cluster diagram immediately below is current.
 
 talam reads Kubernetes and Istio API objects, runs deterministic analyzers against them, and hands the results to an LLM to explain in plain English — the same loop k8sgpt runs one layer down the stack. talam's failures live one layer up: not "pod won't schedule" but "pod is healthy, mesh routing is not."
 
@@ -17,87 +17,90 @@ talam reads Kubernetes and Istio API objects, runs deterministic analyzers again
 
 ### Single-cluster view
 
-Each mesh-bearing cluster runs one [operator](../components/operator/README.md) and one [agent](../components/agent/README.md).
+Each mesh-bearing cluster runs one [operator](../components/operator/README.md) and one [agent](../components/agent/README.md). This reflects the current design — [ADR-0007](../decisions/0007-agent-never-applies-remediation.md) (agent never applies remediation), [ADR-0008](../decisions/0008-kubernetes-native-fleet-transport.md) (`MeshIncident`/canonical `MeshResolution` live in the server's cluster, not here), and [ADR-0009](../decisions/0009-agent-side-evidence-gathering-and-fleet-correlation.md) (evidence gathering via local MCP servers). Almost everything below happens inside this one cluster — the single exception is one clearly-marked edge where the agent reaches into the server's cluster, which is exactly the one cross-cluster credential this design allows.
 
 ```mermaid
 flowchart TB
-    subgraph OpLane[" "]
+    subgraph Spoke["Spoke cluster"]
         direction TB
+
         Op(["⚙️ <b>talam-operator</b>"])
-    end
-
-    subgraph AgLane[" "]
-        direction TB
         Ag(["🔄 <b>talam-agent</b>"])
-    end
-
-    subgraph ExtLane[" "]
-        direction TB
         ExtSys(["🔌 <b>External system</b><br/><i>GitOps · pipeline · kubectl</i>"])
+
+        MD[("MeshDiagnostics<br/><i>cluster config</i>")]
+        LocalRBAC["ServiceAccount · Role<br/><i>local, read-only on mesh resources</i>"]
+        FleetSecret["Secret: fleet kubeconfig<br/><i>pre-provisioned out of band —<br/>operator only mounts it, never mints it</i>"]
+        MCP["MCPServer registrations<br/><i>talam-mesh-mcp + others, local only</i>"]
+        LocalMR[("MeshResolution<br/><i>read-only mirror</i>")]
+
+        Api{{"Kubernetes API"}}
+        Istio{{"Istio Control Plane<br/><i>istiod / xDS</i>"}}
+        Workloads["User workloads<br/><i>Istio-injected pods</i>"]
+
+        Op == "1 reconciles" ==> MD
+        Op == "2 provisions" ==> LocalRBAC
+        Op == "3 mounts" ==> FleetSecret
+        LocalRBAC -. "grants local read-only" .-> Ag
+        FleetSecret -. "grants cross-cluster access" .-> Ag
+
+        Ag == "4 reads state" ==> Api
+        Ag == "4 reads xDS" ==> Istio
+        Ag == "5 gathers evidence" ==> MCP
+        Ag == "7 mirrors down" ==> LocalMR
+
+        ExtSys == "8 subscribes to" ==> LocalMR
+        ExtSys == "9 applies patch" ==> Api
+        ExtSys == "9 applies patch" ==> Istio
+        ExtSys == "10 reports outcome" ==> LocalMR
+
+        MCP -.-> Istio
+        Api -.-> Workloads
+        Istio -.->|configures| Workloads
     end
 
-    MD[("MeshDiagnostics<br/><i>cluster config</i>")]
-    RBAC["ServiceAccount<br/>Role · RoleBinding<br/><i>read-only on mesh resources</i>"]
+    ServerCluster[["Server cluster<br/><i>fleet-&lt;clusterName&gt; namespace</i><br/>MeshIncident · MeshResolution (canonical)"]]
 
-    subgraph WatchedCRDs["watched CRDs (synced from server)"]
-        direction TB
-        MI[("MeshIncident")]
-        MR[("MeshResolution")]
-        MB[("ModelBinding")]
-    end
-
-    Api{{"Kubernetes API"}}
-    Istio{{"Istio Control Plane<br/><i>istiod / xDS</i>"}}
-    Workloads["User workloads<br/><i>Istio-injected pods</i>"]
-
-    Op == "1 reconciles" ==> MD
-    Op == "2 provisions" ==> RBAC
-    RBAC -. "grants read-only access to" .-> Ag
-
-    Ag == "3 watches" ==> WatchedCRDs
-    Ag == "4 reads state" ==> Api
-    Ag == "4 reads xDS" ==> Istio
-
-    ExtSys == "5 subscribes to" ==> MR
-    ExtSys == "6 applies patch" ==> Api
-    ExtSys == "6 applies patch" ==> Istio
-    ExtSys == "7 reports outcome" ==> MR
-
-    Api -.-> Workloads
-    Istio -.->|configures| Workloads
+    Ag == "6 creates/updates MeshIncident;<br/>watches MeshResolution; relays outcome" ==> ServerCluster
 
     classDef opStyle fill:#0891b2,color:#fff,stroke:#075985,stroke-width:2px
     classDef agStyle fill:#0f766e,color:#fff,stroke:#075985,stroke-width:2px
     classDef extStyle fill:#7c3aed,color:#fff,stroke:#5b21b6,stroke-width:2px
     classDef crdStyle fill:#fff8dc,stroke:#f59e0b,stroke-width:2px
     classDef k8sStyle fill:#f3f4f6,stroke:#0b1220,stroke-width:2px
-    classDef laneStyle fill:none,stroke:none
+    classDef mcpStyle fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    classDef remoteStyle fill:#f8fafc,stroke:#0f766e,stroke-width:2px,stroke-dasharray:6 3
 
     class Op opStyle
     class Ag agStyle
     class ExtSys extStyle
-    class MD,MI,MR,MB crdStyle
-    class Api,Istio,Workloads,RBAC k8sStyle
-    class OpLane,AgLane,ExtLane laneStyle
+    class MD,LocalMR crdStyle
+    class Api,Istio,Workloads,LocalRBAC,FleetSecret k8sStyle
+    class MCP mcpStyle
+    class ServerCluster remoteStyle
 
-    linkStyle 0,1 stroke:#0891b2,stroke-width:2.5px
-    linkStyle 2 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:4 3
-    linkStyle 3,4,5 stroke:#0f766e,stroke-width:2.5px
-    linkStyle 6,7,8,9 stroke:#7c3aed,stroke-width:2.5px
+    linkStyle 0,1,2 stroke:#0891b2,stroke-width:2.5px
+    linkStyle 3,4 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:4 3
+    linkStyle 5,6,7,8 stroke:#0f766e,stroke-width:2.5px
+    linkStyle 9,10,11,12 stroke:#7c3aed,stroke-width:2.5px
+    linkStyle 16 stroke:#0f766e,stroke-width:3px,stroke-dasharray:3 2
 ```
 
 **Key flows** — numbered to match the diagram:
-1. **Operator reconciles** `MeshDiagnostics` (cluster-scoped config: which analyzers, scan interval, server endpoint)
-2. **Operator provisions** the ServiceAccount/Role/RoleBinding the agent needs — read-only on every mesh resource, full stop ([ADR-0007](../decisions/0007-agent-never-applies-remediation.md))
-3. **Agent watches** `MeshIncident`, `MeshResolution`, `ModelBinding` — all synced down from talam-server
-4. **Agent reads** live cluster state (API objects + Istio xDS) to see what's actually running — read-only, same as everything else it touches outside its own CRDs
-5. **External system subscribes** to `MeshResolution` — a GitOps controller, an existing config pipeline, or a human via `kubectl`; talam never assumes which
-6. **External system applies** the patch on its own initiative and authority — talam-agent has no write RBAC on any mesh resource to do this itself
-7. **External system reports** the outcome back onto `MeshResolution.status`; the agent's `ResolutionReconciler` then relays it to talam-server (shown in the fleet-wide view below)
+1. **Operator reconciles** `MeshDiagnostics` (cluster-scoped config: which analyzers, scan interval, server endpoint, `fleetKubeconfigSecretRef`)
+2. **Operator provisions** the agent's *local* ServiceAccount/Role — read-only on every mesh resource, full stop ([ADR-0007](../decisions/0007-agent-never-applies-remediation.md))
+3. **Operator mounts** the pre-provisioned fleet-credential `Secret` into the agent's Deployment — it does **not** mint this credential itself, only plumbs it through ([ADR-0008](../decisions/0008-kubernetes-native-fleet-transport.md#credential-bootstrap))
+4. **Agent reads** live local cluster state (API objects + Istio xDS) — read-only, same as everything else it touches outside its own writes
+5. **Agent gathers evidence** from local `MCPServer` registrations (`talam-mesh-mcp` and others) while producing a finding — same-cluster only, no network exception needed ([ADR-0009](../decisions/0009-agent-side-evidence-gathering-and-fleet-correlation.md))
+6. **Agent creates/updates `MeshIncident` in the server's cluster** — the one edge that leaves this cluster, using the credential from step 3. Also watches the canonical `MeshResolution` there and relays any reported outcome back to it ([ADR-0008](../decisions/0008-kubernetes-native-fleet-transport.md))
+7. **Agent mirrors** the canonical `MeshResolution` down as a **read-only local copy** — this is what the external system actually subscribes to, so it never needs a cross-cluster credential of its own
+8. **External system subscribes** to the local `MeshResolution` mirror — a GitOps controller, an existing config pipeline, or a human via `kubectl`; talam never assumes which
+9. **External system applies** the patch on its own initiative and authority — talam-agent has no write RBAC on any mesh resource to do this itself
+10. **External system reports** the outcome by patching `status.conditions` on the local mirror (the readinessGate pattern, [ADR-0008](../decisions/0008-kubernetes-native-fleet-transport.md#the-object-model--zero-new-crd-types)) — the agent relays it back up as part of step 6
 
-Cyan edges belong to the operator, teal to the agent, violet to the external system that actually applies remediation — three components, three colors, and no two of them ever write to the same target, so responsibility stays visually separable even where paths cross.
+Cyan edges belong to the operator, teal to the agent (including the one thick dashed edge crossing the cluster boundary — still agent-owned, just visually marked as leaving), violet to the external system that actually applies remediation. No two components ever write to the same target, so responsibility stays visually separable even where paths cross. `MCPServer` (amber) and the server cluster (dashed-border box) are the two additions since the last version of this diagram.
 
-All CRD state is queryable with `kubectl get meshincidents`, `kubectl get meshresolutions`, etc. — no separate database.
+Local CRD state is queryable with `kubectl get meshdiagnostics`, `kubectl get meshresolutions`, etc. — but `MeshIncident` and the canonical `MeshResolution` now live in the server's cluster, not here; `kubectl get meshincidents` only works there.
 
 ### Fleet-wide view
 
