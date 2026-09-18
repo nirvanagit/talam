@@ -18,101 +18,127 @@ talam reads Kubernetes and Istio API objects, runs deterministic analyzers again
 Each mesh-bearing cluster runs one [operator](../components/operator/README.md) and one [agent](../components/agent/README.md).
 
 ```mermaid
-graph TB
-    subgraph talam["talam-system namespace"]
-        Op["<b>talam-operator</b><br/>Reconciles MeshDiagnostics<br/>Manages RBAC & lifecycle"]
-        Ag["<b>talam-agent</b><br/>Syncs from server<br/>Reconciles CRDs<br/>Applies patches"]
+flowchart TB
+    subgraph OpLane[" "]
+        direction TB
+        Op(["⚙️ <b>talam-operator</b>"])
     end
-    
-    subgraph k8s["Kubernetes cluster"]
-        Api["<b>Kubernetes API</b><br/>(kube-apiserver)"]
-        Istio["<b>Istio Control Plane</b><br/>(istiod)"]
-        Workloads["<b>User Namespaces</b><br/>Istio-injected pods"]
+
+    subgraph AgLane[" "]
+        direction TB
+        Ag(["🔄 <b>talam-agent</b>"])
     end
-    
-    subgraph crds["Custom Resources<br/>(stored in etcd)"]
-        MD["MeshDiagnostics<br/>(config)"]
-        MI["MeshIncident<br/>(findings)"]
-        MR["MeshResolution<br/>(remediation)"]
-        MS["MCPServer<br/>(evidence sources)"]
-        MB["ModelBinding<br/>(LLM config)"]
+
+    MD[("MeshDiagnostics<br/><i>cluster config</i>")]
+    RBAC["ServiceAccount<br/>Role · RoleBinding"]
+
+    subgraph WatchedCRDs["watched CRDs (synced from server)"]
+        direction TB
+        MI[("MeshIncident")]
+        MR[("MeshResolution")]
+        MB[("ModelBinding")]
     end
-    
-    Op -->|watches| MD
-    Op -->|creates RBAC| Api
-    
-    Ag -->|watches| MI
-    Ag -->|watches| MR
-    Ag -->|watches| MB
-    Ag -->|reads| Api
-    Ag -->|reads xDS| Istio
-    Ag -->|patches| Api
-    Ag -->|patches| Istio
-    
-    Api -->|stores| crds
-    Istio -->|configures| Workloads
-    
-    style talam fill:#0f766e,color:#fff,stroke:#0f766e
-    style Op fill:#0891b2,color:#fff
-    style Ag fill:#0891b2,color:#fff
-    style k8s fill:#f3f4f6,stroke:#0b1220,stroke-width:2px
-    style crds fill:#fff8dc,stroke:#f59e0b,stroke-width:2px
+
+    Api{{"Kubernetes API"}}
+    Istio{{"Istio Control Plane<br/><i>istiod / xDS</i>"}}
+    Workloads["User workloads<br/><i>Istio-injected pods</i>"]
+
+    Op == "1 reconciles" ==> MD
+    Op == "2 provisions" ==> RBAC
+    RBAC -. "grants access to" .-> Ag
+
+    Ag == "3 watches" ==> WatchedCRDs
+    Ag == "4 reads state" ==> Api
+    Ag == "4 reads xDS" ==> Istio
+    Ag == "5 applies patch" ==> Api
+    Ag == "5 applies patch" ==> Istio
+
+    Api -.-> Workloads
+    Istio -.->|configures| Workloads
+
+    classDef opStyle fill:#0891b2,color:#fff,stroke:#075985,stroke-width:2px
+    classDef agStyle fill:#0f766e,color:#fff,stroke:#075985,stroke-width:2px
+    classDef crdStyle fill:#fff8dc,stroke:#f59e0b,stroke-width:2px
+    classDef k8sStyle fill:#f3f4f6,stroke:#0b1220,stroke-width:2px
+    classDef laneStyle fill:none,stroke:none
+
+    class Op opStyle
+    class Ag agStyle
+    class MD,MI,MR,MB crdStyle
+    class Api,Istio,Workloads,RBAC k8sStyle
+    class OpLane,AgLane laneStyle
+
+    linkStyle 0,1 stroke:#0891b2,stroke-width:2.5px
+    linkStyle 2 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:4 3
+    linkStyle 3,4,5,6,7 stroke:#0f766e,stroke-width:2.5px
 ```
 
-**Key flows:**
-- **Operator** reconciles `MeshDiagnostics` (cluster-scoped config) and sets up RBAC
-- **Agent** watches `MeshIncident` and `MeshResolution` CRDs (synced from server)
-- **Agent** reads live cluster state (API + xDS) to understand what's running
-- **Agent** applies patches to fix misconfigurations (dry-run first, then live)
-- **All state lives in CRDs** — everything is auditable, queryable with kubectl
+**Key flows** — numbered to match the diagram:
+1. **Operator reconciles** `MeshDiagnostics` (cluster-scoped config: which analyzers, scan interval, server endpoint)
+2. **Operator provisions** the ServiceAccount/Role/RoleBinding the agent needs
+3. **Agent watches** `MeshIncident`, `MeshResolution`, `ModelBinding` — all synced down from talam-server
+4. **Agent reads** live cluster state (API objects + Istio xDS) to see what's actually running
+5. **Agent applies** patches to fix misconfigurations (dry-run validated first, then live)
+
+Cyan edges belong to the operator; teal edges belong to the agent — the two components never write to the same target, so their responsibilities stay visually separable even where paths cross.
+
+All CRD state is queryable with `kubectl get meshincidents`, `kubectl get meshresolutions`, etc. — no separate database.
 
 ### Fleet-wide view
 
 Agents from multiple clusters report findings to a central talam-server, which coordinates with an LLM provider:
 
 ```mermaid
-graph TB
-    User["👤 SRE / CLI<br/>REST API"]
-    Server["<b>talam-server</b><br/>Findings aggregation<br/>LLM coordination<br/>Proposal broker<br/>Fleet history"]
-    LLM["<b>LLM Provider</b><br/>Claude, GPT, etc<br/>(pluggable)"]
-    
-    User -->|approval| Server
-    Server <-->|explain & propose| LLM
-    
-    subgraph ClusterA["Cluster A (EKS/GKE/on-prem)"]
-        OpA["talam-operator"]
-        AgentA["talam-agent"]
-        ApiA["K8s API + Istio"]
+flowchart TB
+    User(["👤 SRE / CLI"])
+    Server["<b>talam-server</b><br/><i>findings aggregation · LLM coordination<br/>proposal broker · fleet history</i>"]
+    LLM["<b>LLM Provider</b><br/><i>Claude, GPT, etc — pluggable</i>"]
+
+    User == "approves" ==> Server
+    Server == "explain + propose" ==> LLM
+    LLM == "response" ==> Server
+
+    subgraph ClusterA["Cluster A — EKS / GKE / on-prem"]
+        direction TB
+        OpA(["⚙️ operator"])
+        AgentA(["🔄 agent"])
+        ApiA{{"K8s API + Istio"}}
+        OpA -. "provisions RBAC for" .-> AgentA
+        AgentA == "read / patch" ==> ApiA
     end
-    
+
     subgraph ClusterB["Cluster B"]
-        OpB["talam-operator"]
-        AgentB["talam-agent"]
-        ApiB["K8s API + Istio"]
+        direction TB
+        OpB(["⚙️ operator"])
+        AgentB(["🔄 agent"])
+        ApiB{{"K8s API + Istio"}}
+        OpB -. "provisions RBAC for" .-> AgentB
+        AgentB == "read / patch" ==> ApiB
     end
-    
-    Server -->|proposals| ClusterA
-    Server -->|proposals| ClusterB
-    
-    AgentA -->|findings| Server
-    AgentB -->|findings| Server
-    
-    OpA -.->|RBAC| ApiA
-    AgentA -->|patch| ApiA
-    AgentA -->|read state| ApiA
-    
-    OpB -.->|RBAC| ApiB
-    AgentB -->|patch| ApiB
-    AgentB -->|read state| ApiB
-    
-    style Server fill:#0f766e,color:#fff
-    style LLM fill:#0891b2,color:#fff
-    style User fill:#f3f4f6,color:#0b1220
-    style ClusterA fill:#f3f4f6,stroke:#0f766e,stroke-width:2px
-    style ClusterB fill:#f3f4f6,stroke:#0f766e,stroke-width:2px
+
+    Server == "proposals" ==> ClusterA
+    Server == "proposals" ==> ClusterB
+    AgentA == "findings" ==> Server
+    AgentB == "findings" ==> Server
+
+    classDef serverStyle fill:#0f766e,color:#fff,stroke:#075985,stroke-width:2px
+    classDef llmStyle fill:#0891b2,color:#fff,stroke:#075985,stroke-width:2px
+    classDef userStyle fill:#f3f4f6,color:#0b1220,stroke:#94a3b8
+    classDef clusterStyle fill:#f8fafc,stroke:#0f766e,stroke-width:2px
+    classDef opStyle fill:#0891b2,color:#fff,stroke:#075985
+    classDef agStyle fill:#0f766e,color:#fff,stroke:#075985
+    classDef apiStyle fill:#fff8dc,stroke:#f59e0b,stroke-width:2px
+
+    class Server serverStyle
+    class LLM llmStyle
+    class User userStyle
+    class ClusterA,ClusterB clusterStyle
+    class OpA,OpB opStyle
+    class AgentA,AgentB agStyle
+    class ApiA,ApiB apiStyle
 ```
 
-**Key insight:** The server is the sole authority on what needs fixing (proposals come from server to agents). Agents are the sole writers to their clusters (deterministic reconciliation, no conflicts).
+**Key insight:** the server is the sole authority on *what* needs fixing (proposals flow server → agent, one direction only); each agent is the sole writer to *its own* cluster (findings flow agent → server, the mirror direction). The two clusters never talk to each other — all coordination is brokered through the server, so there's exactly one path between any two components and no line has to guess which box it started from.
 
 Component-level detail: [operator](../components/operator/README.md) · [agent](../components/agent/README.md) · [server](../components/server/README.md).
 
