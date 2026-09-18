@@ -15,26 +15,48 @@ talam reads Kubernetes and Istio API objects, runs deterministic analyzers again
 
 Each mesh-bearing cluster runs one [operator](../components/operator/README.md) and one [agent](../components/agent/README.md). Agents report structured [findings](../concepts/finding-and-incident.md) to a central [talam-server](../components/server/README.md), the only component that talks to an LLM provider and the only place fleet-wide history lives.
 
-```
-                     ┌────────────────────┐        ┌──────────────┐
-                     │    talam-server    │◄──────►│ LLM provider │
-   ┌───────────┐     │  (aggregation,     │        │  (pluggable) │
-   │ SRE / CLI │────►│   correlation,     │        └──────────────┘
-   └───────────┘     │   remediation      │
-                      │   broker, history) │
-                      └─────────▲──────────┘
-                                │  findings (mTLS gRPC)
-              ┌─────────────────┴─────────────────┐
-              │                                    │
-   ┌──────────┴──────────┐              ┌──────────┴──────────┐
-   │      cluster A       │              │      cluster B       │
-   │ ┌──────────┐┌───────┐│              │ ┌──────────┐┌───────┐│
-   │ │ operator ││ agent ││              │ │ operator ││ agent ││
-   │ └──────────┘└───┬───┘│              │ └──────────┘└───┬───┘│
-   │        ┌─────────┴───┴────┐         │        ┌─────────┴───┴────┐
-   │        │ apiserver/istiod │         │        │ apiserver/istiod │
-   │        └──────────────────┘         │        └──────────────────┘
-   └──────────────────────────┘          └──────────────────────────┘
+```mermaid
+graph TB
+    User["👤 SRE / CLI"]
+    Server["<b>talam-server</b><br/>Aggregation, Remediation,<br/>Correlation, History"]
+    LLM["<b>LLM Provider</b><br/>Claude, GPT, etc<br/>(pluggable)"]
+    
+    User -->|approval| Server
+    Server <-->|explain & propose| LLM
+    
+    ClusterA["<b>Cluster A</b><br/>(EKS, GKE, on-prem)"]
+    ClusterB["<b>Cluster B</b>"]
+    
+    Server -->|findings| ClusterA
+    Server -->|findings| ClusterB
+    
+    OpA["<b>talam-operator</b><br/>Lifecycle, RBAC"]
+    AgentA["<b>talam-agent</b><br/>CRD Reconciliation<br/>Apply Proposals"]
+    ApiA["<b>Kubernetes API</b><br/>+ Istio/xDS"]
+    
+    OpB["<b>talam-operator</b>"]
+    AgentB["<b>talam-agent</b>"]
+    ApiB["<b>Kubernetes API</b><br/>+ Istio/xDS"]
+    
+    ClusterA --> OpA
+    ClusterA --> AgentA
+    ClusterA --> ApiA
+    
+    ClusterB --> OpB
+    ClusterB --> AgentB
+    ClusterB --> ApiB
+    
+    AgentA -->|findings| Server
+    AgentB -->|findings| Server
+    
+    ApiA -->|read state| AgentA
+    ApiB -->|read state| AgentB
+    
+    style Server fill:#0f766e,color:#fff
+    style LLM fill:#0891b2,color:#fff
+    style User fill:#f3f4f6,color:#0b1220
+    style ClusterA fill:#f3f4f6,stroke:#0f766e,stroke-width:2px
+    style ClusterB fill:#f3f4f6,stroke:#0f766e,stroke-width:2px
 ```
 
 Component-level detail: [operator](../components/operator/README.md) · [agent](../components/agent/README.md) · [server](../components/server/README.md).
