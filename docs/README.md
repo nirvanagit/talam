@@ -1,6 +1,25 @@
 # Documentation map
 
-This folder is organized as a graph: every doc is a **node** with a single clear purpose, and links between docs are **edges** — explicit, relative, and load-bearing. There's no separate index database; the graph *is* the folder structure plus the links inside each file. GitHub renders it natively, so the graph is walkable with nothing but a browser.
+talam's documentation lives entirely in markdown, organized in this folder. GitHub renders it natively — no build step, no external dependencies.
+
+## Quick Start
+
+New to talam? Start here:
+
+1. **[Getting Started](getting-started.md)** — Install, run your first scan, approve a remediation (5 min)
+2. **[Architecture Overview](architecture/overview.md)** — Understand the big picture
+3. **[Design System](design.md)** — Brand, colors, UI principles
+
+## For Everyone Else
+
+- **[Guides](guides.md)** — kubectl recipes, common tasks, troubleshooting
+- **[Design System](design.md)** — Brand identity, colors, typography, visual principles
+- **[Contribute](contribute.md)** — How to submit code, report bugs, add analyzers
+- **[Changelog](changelog.md)** — Release notes, roadmap, breaking changes
+
+## Technical Deep Dives
+
+The documentation graph below organizes all technical details:
 
 ## Node types
 
@@ -23,6 +42,16 @@ This folder is organized as a graph: every doc is a **node** with a single clear
 
 ## Full node list
 
+### Getting started
+- [`getting-started.md`](getting-started.md) — install, first scan, first remediation
+- [`guides.md`](guides.md) — kubectl recipes and quick reference
+
+### Design and contribution
+- [`design.md`](design.md) — brand, colors, typography, UI principles
+- [`contribute.md`](contribute.md) — how to contribute code, analyzers, docs
+- [`changelog.md`](changelog.md) — release notes, roadmap, upgrade guide
+
+### Technical architecture
 - [`architecture/overview.md`](architecture/overview.md) — system topology, principles, roadmap
 - [`components/operator/README.md`](components/operator/README.md)
 - [`components/agent/README.md`](components/agent/README.md)
