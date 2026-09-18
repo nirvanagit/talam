@@ -8,11 +8,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 )
 
-func newFakeMeshResolution(namespace, name, incidentRef, serverProposalID string, triggered bool, targetRV string) *unstructured.Unstructured {
+func newFakeMeshResolution(namespace, name, incidentRef, serverProposalID string, approved bool) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "talam.dev/v1alpha1",
 		"kind":       "MeshResolution",
@@ -21,95 +20,53 @@ func newFakeMeshResolution(namespace, name, incidentRef, serverProposalID string
 			"incidentRef":           incidentRef,
 			"serverProposalId":      serverProposalID,
 			"target":                map[string]any{"kind": "DestinationRule", "namespace": "demo", "name": "httpbin"},
-			"targetResourceVersion": targetRV,
+			"targetResourceVersion": "10",
 			"riskTier":              "Low",
 			"patch": []any{
 				map[string]any{"op": "replace", "path": "/spec/subsets/1/labels/version", "value": "v2-fixed"},
 			},
-			"triggered": triggered,
+			"approved": approved,
 		},
 		"status": map[string]any{
-			"phase":     "Pending",
-			"performed": false,
+			"phase": "Pending",
 		},
 	}}
 }
 
-func TestResolutionReconcilerSkipsUntriggered(t *testing.T) {
-	dr := newFakeDestinationRule("demo", "httpbin", "10")
-	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", false, "10")
-	fake := newFakeDynamicClient(dr, res)
+func TestResolutionReconcilerSkipsResolutionWithNoOutcomeYet(t *testing.T) {
+	// No external system has reported anything yet — the reconciler must not
+	// invent an outcome or call talam-server.
+	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true)
+	fake := newFakeDynamicClient(res)
+
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
 	rr := &ResolutionReconciler{
-		Namespace: "talam-system",
-		Dynamic:   fake,
-		Applier:   testApplier(fake),
-		Log:       testLogger(),
+		Namespace:       "talam-system",
+		Dynamic:         fake,
+		OutcomeReporter: &OutcomeReporter{ServerURL: srv.URL, Client: srv.Client(), Log: testLogger()},
+		Log:             testLogger(),
 	}
 	rr.reconcileOnce(context.Background())
 
-	live := getFakeResolution(t, fake, "prop-1")
-	performed, _, _ := unstructured.NestedBool(live.Object, "status", "performed")
-	if performed {
-		t.Fatal("an untriggered resolution must never be applied")
+	if called {
+		t.Fatal("a resolution with no status.outcome must never trigger an outcome report")
 	}
 }
 
-func TestResolutionReconcilerAppliesTriggeredResolution(t *testing.T) {
-	dr := newFakeDestinationRule("demo", "httpbin", "10")
-	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true, "10")
-	fake := newFakeDynamicClient(dr, res)
-	rr := &ResolutionReconciler{
-		Namespace: "talam-system",
-		Dynamic:   fake,
-		Applier:   testApplier(fake),
-		Log:       testLogger(),
-	}
-	rr.reconcileOnce(context.Background())
-
-	live := getFakeResolution(t, fake, "prop-1")
-	performed, _, _ := unstructured.NestedBool(live.Object, "status", "performed")
-	phase, _, _ := unstructured.NestedString(live.Object, "status", "phase")
-	if !performed || phase != "Applied" {
-		t.Fatalf("expected performed=true phase=Applied, got performed=%v phase=%q", performed, phase)
-	}
-}
-
-func TestResolutionReconcilerSkipsAlreadyPerformed(t *testing.T) {
-	dr := newFakeDestinationRule("demo", "httpbin", "10")
-	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true, "10")
-	res.Object["status"] = map[string]any{"phase": "Applied", "performed": true}
-	fake := newFakeDynamicClient(dr, res)
-	rr := &ResolutionReconciler{
-		Namespace: "talam-system",
-		Dynamic:   fake,
-		Applier:   testApplier(fake),
-		Log:       testLogger(),
-	}
-	rr.reconcileOnce(context.Background())
-
-	live, err := fake.Resource(schema.GroupVersionResource{Group: "networking.istio.io", Version: "v1", Resource: "destinationrules"}).
-		Namespace("demo").Get(context.Background(), "httpbin", metav1.GetOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	subsets, _, _ := unstructured.NestedSlice(live.Object, "spec", "subsets")
-	subset1, _ := subsets[1].(map[string]any)
-	labels, _ := subset1["labels"].(map[string]any)
-	if labels["version"] != "v2" {
-		t.Fatal("an already-performed resolution must not be re-applied")
-	}
-}
-
-func TestResolutionReconcilerRetriesFailedOutcomeReportWithoutReapplying(t *testing.T) {
-	// The resolution was already applied locally (performed=true) but the
-	// outcome report to talam-server never succeeded (outcomeReported=false)
-	// — simulating a transient network failure on the first attempt.
-	dr := newFakeDestinationRule("demo", "httpbin", "10") // still has 2 subsets
-	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true, "10")
+func TestResolutionReconcilerRelaysExternallyReportedOutcome(t *testing.T) {
+	// Simulates an external system (GitOps controller, human via kubectl)
+	// having applied the patch and patched status.outcome itself.
+	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true)
 	res.Object["status"] = map[string]any{
-		"phase": "Applied", "performed": true, "outcomeReported": false, "detail": "applied",
+		"phase": "Approved", "outcome": "Applied", "appliedBy": "argocd", "detail": "synced",
 	}
-	fake := newFakeDynamicClient(dr, res)
+	fake := newFakeDynamicClient(res)
 
 	var reported []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,10 +76,51 @@ func TestResolutionReconcilerRetriesFailedOutcomeReportWithoutReapplying(t *test
 	defer srv.Close()
 
 	rr := &ResolutionReconciler{
-		Namespace: "talam-system",
-		Dynamic:   fake,
-		Applier:   &Applier{ServerURL: srv.URL, Dynamic: fake, Client: srv.Client(), Log: testLogger()},
-		Log:       testLogger(),
+		Namespace:       "talam-system",
+		Dynamic:         fake,
+		OutcomeReporter: &OutcomeReporter{ServerURL: srv.URL, Client: srv.Client(), Log: testLogger()},
+		Log:             testLogger(),
+	}
+	rr.reconcileOnce(context.Background())
+
+	if len(reported) != 1 || reported[0] != "/v1/proposals/prop-1/outcome" {
+		t.Fatalf("expected exactly one outcome report, got %v", reported)
+	}
+
+	live := getFakeResolution(t, fake, "prop-1")
+	outcomeReported, _, _ := unstructured.NestedBool(live.Object, "status", "outcomeReported")
+	phase, _, _ := unstructured.NestedString(live.Object, "status", "phase")
+	if !outcomeReported {
+		t.Error("outcomeReported should be true after a successful relay")
+	}
+	if phase != "Applied" {
+		t.Errorf("expected phase to be copied from outcome, got %q", phase)
+	}
+}
+
+func TestResolutionReconcilerRetriesFailedRelayWithoutDuplicating(t *testing.T) {
+	// The outcome was recorded locally but the relay to talam-server never
+	// succeeded (outcomeReported=false) — simulating a transient network
+	// failure on the first attempt. Retrying must not require a fresh
+	// outcome from the external system.
+	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true)
+	res.Object["status"] = map[string]any{
+		"phase": "Approved", "outcome": "Applied", "outcomeReported": false, "detail": "synced",
+	}
+	fake := newFakeDynamicClient(res)
+
+	var reported []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reported = append(reported, r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rr := &ResolutionReconciler{
+		Namespace:       "talam-system",
+		Dynamic:         fake,
+		OutcomeReporter: &OutcomeReporter{ServerURL: srv.URL, Client: srv.Client(), Log: testLogger()},
+		Log:             testLogger(),
 	}
 	rr.reconcileOnce(context.Background())
 
@@ -135,22 +133,11 @@ func TestResolutionReconcilerRetriesFailedOutcomeReportWithoutReapplying(t *test
 	if !outcomeReported {
 		t.Error("outcomeReported should be true after a successful retry")
 	}
-
-	// Crucially: the apply must NOT have run again.
-	liveDR, err := fake.Resource(schema.GroupVersionResource{Group: "networking.istio.io", Version: "v1", Resource: "destinationrules"}).
-		Namespace("demo").Get(context.Background(), "httpbin", metav1.GetOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	subsets, _, _ := unstructured.NestedSlice(liveDR.Object, "spec", "subsets")
-	if len(subsets) != 2 {
-		t.Fatal("a resolution that's already performed must never trigger a second apply, even while retrying the outcome report")
-	}
 }
 
 func TestResolutionReconcilerSkipsAlreadyReportedOutcome(t *testing.T) {
-	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true, "10")
-	res.Object["status"] = map[string]any{"phase": "Applied", "performed": true, "outcomeReported": true}
+	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true)
+	res.Object["status"] = map[string]any{"phase": "Applied", "outcome": "Applied", "outcomeReported": true}
 	fake := newFakeDynamicClient(res)
 
 	called := false
@@ -161,10 +148,10 @@ func TestResolutionReconcilerSkipsAlreadyReportedOutcome(t *testing.T) {
 	defer srv.Close()
 
 	rr := &ResolutionReconciler{
-		Namespace: "talam-system",
-		Dynamic:   fake,
-		Applier:   &Applier{ServerURL: srv.URL, Dynamic: fake, Client: srv.Client(), Log: testLogger()},
-		Log:       testLogger(),
+		Namespace:       "talam-system",
+		Dynamic:         fake,
+		OutcomeReporter: &OutcomeReporter{ServerURL: srv.URL, Client: srv.Client(), Log: testLogger()},
+		Log:             testLogger(),
 	}
 	rr.reconcileOnce(context.Background())
 

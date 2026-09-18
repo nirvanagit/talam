@@ -53,7 +53,7 @@ func grants(rules []rbacv1.PolicyRule, group, resource, verb string) bool {
 			}
 		}
 		for _, res := range r.Resources {
-			if res == resource {
+			if res == resource || res == "*" {
 				hasResource = true
 			}
 		}
@@ -99,18 +99,25 @@ func TestEnsureRBACGrantsWhatCRDSyncAndReconcilersNeed(t *testing.T) {
 		}
 	}
 
-	// The agent ClusterRole — Istio access CRDSync/reconcilers don't touch,
-	// but the scan/apply path (internal/agent/engine.go, applier.go) does.
+	// The agent ClusterRole — Istio access the scan path (internal/agent/engine.go)
+	// reads from, read-only only: talam-agent never applies a remediation
+	// itself (ADR-0007), so it must never hold a write verb on a mesh resource.
 	cr, err := core.RbacV1().ClusterRoles().Get(context.Background(), "talam-agent-kind-local", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("agent ClusterRole not created: %v", err)
 	}
 	for _, n := range []struct{ group, resource, verb string }{
-		{"networking.istio.io", "destinationrules", "patch"},
+		{"networking.istio.io", "destinationrules", "get"},
+		{"networking.istio.io", "destinationrules", "watch"},
 		{"", "pods", "get"},
 	} {
 		if !grants(cr.Rules, n.group, n.resource, n.verb) {
 			t.Errorf("agent ClusterRole missing grant: apiGroup=%q resource=%q verb=%q", n.group, n.resource, n.verb)
+		}
+	}
+	for _, writeVerb := range []string{"patch", "update", "create", "delete"} {
+		if grants(cr.Rules, "networking.istio.io", "destinationrules", writeVerb) {
+			t.Errorf("agent ClusterRole must never grant %q on a mesh resource (ADR-0007) — talam-agent doesn't apply remediation itself", writeVerb)
 		}
 	}
 }

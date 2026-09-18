@@ -2,6 +2,17 @@
 
 All notable changes to talam are documented here. This project follows [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed — Breaking
+
+- **talam-agent no longer applies remediation.** Per [ADR-0007](decisions/0007-agent-never-applies-remediation.md), `Applier` is removed and the agent's `ClusterRole` is now read-only against every mesh resource — no write verb on any Istio CRD, in any cluster. `MeshResolution` is now the artifact an **external system** (a GitOps controller, an existing config pipeline, or a human via `kubectl`) subscribes to and acts on; talam only relays whatever outcome that system reports back onto the object.
+  - `MeshResolutionSpec.triggered` renamed to `spec.approved` — same population (mirrors a human's dashboard decision), now purely advisory: talam-agent never reads it.
+  - `MeshResolutionStatus.performed` removed; replaced by `status.outcome` (`"Applied"` | `"Failed"`, written externally) and `status.appliedBy`.
+  - `MeshResolutionStatus.dryRunDiff` removed — talam's dry-run validation required the same RBAC write verb this change removes, so it no longer exists; a consuming system does its own pre-apply validation.
+  - `MeshIncidentStatus.complete` now derives from `status.outcome` being non-empty across referenced resolutions, instead of `status.performed`.
+- If no external system is subscribed to `MeshResolution` in a cluster, the escape hatch is a direct `kubectl patch` against the resolution's `status` subresource after applying the change by hand — see [Getting Started, step 5](getting-started.md#5-approve-a-remediation).
+
 ## [v0.1.0] — 2026-09-17
 
 **Initial release.** talam ships with core functionality for Istio mesh diagnostics.
@@ -72,7 +83,7 @@ None (initial release).
 ## Roadmap (v0.2+)
 
 - [ ] Analyzer support for Linkerd, Amazon Mesh
-- [ ] Auto-apply policies (conditional, progressive rollout)
+- [ ] Auto-*approval* policies (`spec.approved` set automatically for allowlisted low-risk classes — still never applied by talam itself, see [ADR-0007](decisions/0007-agent-never-applies-remediation.md)); GitOps-native mode (proposals rendered as PRs)
 - [ ] WebUI for incident triage and resolution approval
 - [ ] Cluster federation (multi-cluster incident correlation)
 - [ ] Policy engine (which checks to run, which clusters, time-based)

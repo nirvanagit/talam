@@ -24,11 +24,22 @@ kubectl patch meshresolution <name> -n <namespace> \
 kubectl get meshincident <name> -n <namespace> -o jsonpath='{.status.explanation}'
 ```
 
-### Check if a resolution was applied
+### Check if a resolution has been applied
+
+talam never applies a resolution itself ([ADR-0007](decisions/0007-agent-never-applies-remediation.md)) — this checks whether an external system has reported an outcome:
 
 ```bash
-kubectl get meshresolution <name> -n <namespace> -o jsonpath='{.status.phase}'
-# Output: Applied, Rejected, or Pending
+kubectl get meshresolution <name> -n <namespace> -o jsonpath='{.status.outcome}'
+# Empty until an external system reports; then "Applied" or "Failed"
+```
+
+### Report an outcome manually (no external system subscribed)
+
+If nothing in the cluster is watching `MeshResolution` objects, apply the patch yourself and report it so talam's incident tracking closes:
+
+```bash
+kubectl patch meshresolution <name> -n <namespace> --subresource=status -p \
+  '{"status":{"outcome":"Applied","appliedBy":"me","appliedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}}'
 ```
 
 ### Restart talam-agent to resync from server
@@ -67,7 +78,7 @@ More detailed how-to guides:
 - Custom Analyzers — Write a new deterministic check
 - MCP Integration — Add a custom MCP server for evidence enrichment
 - Multi-Cluster Setup — Run talam across multiple Kubernetes clusters
-- Dry-Run Safety — Validate remediation proposals before applying
+- External System Integration — Subscribe a GitOps controller or custom operator to `MeshResolution` objects ([ADR-0007](decisions/0007-agent-never-applies-remediation.md))
 - Troubleshooting — Common problems and solutions
 
 Open an issue to [request a guide](https://github.com/nirvanagit/talam/issues).

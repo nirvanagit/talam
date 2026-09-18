@@ -1,6 +1,8 @@
 // Command talam-agent runs the scan loop and the CRD-native remediation
-// pipeline described in docs/components/agent/README.md and ADR-0005. One
-// agent per cluster.
+// pipeline described in docs/components/agent/README.md and ADR-0005.
+// talam-agent never applies a remediation itself — it only exposes findings
+// and proposals for an external system to act on, and relays that system's
+// outcome back to talam-server (ADR-0007). One agent per cluster.
 package main
 
 import (
@@ -29,7 +31,7 @@ func main() {
 	namespace := flag.String("namespace", "talam-system", "namespace to create/reconcile MeshIncident and MeshResolution objects in")
 	scanInterval := flag.Duration("scan-interval", 30*time.Second, "how often to scan; docs default 5m, shorter locally for fast demo feedback")
 	syncInterval := flag.Duration("sync-interval", 15*time.Second, "how often to sync MeshIncident/MeshResolution from talam-server (ADR-0005)")
-	reconcileInterval := flag.Duration("reconcile-interval", 5*time.Second, "how often to reconcile triggered MeshResolutions and roll up MeshIncident completeness")
+	reconcileInterval := flag.Duration("reconcile-interval", 5*time.Second, "how often to relay externally-reported MeshResolution outcomes and roll up MeshIncident completeness")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -70,10 +72,9 @@ func main() {
 	resolutions := &agent.ResolutionReconciler{
 		Namespace: *namespace,
 		Dynamic:   dyn,
-		Applier: &agent.Applier{
+		OutcomeReporter: &agent.OutcomeReporter{
 			ServerURL: *serverURL,
 			Cluster:   *cluster,
-			Dynamic:   dyn,
 			Client:    httpClient,
 			Log:       log,
 		},

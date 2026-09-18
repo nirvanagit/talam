@@ -1,6 +1,9 @@
 // Package agent implements the talam-agent runtime: a scan loop that builds
 // snapshots, runs the registered analyzer set, and ships findings to
-// talam-server; plus the applier that executes human-approved remediation.
+// talam-server; plus the CRD sync and reconciler loops that expose the
+// resulting incidents and remediation proposals for an external system to
+// act on. talam-agent never applies a patch itself — see ADR-0007
+// (docs/decisions/0007-agent-never-applies-remediation.md).
 package agent
 
 import (

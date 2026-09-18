@@ -56,8 +56,8 @@ Every visual should reinforce that talam's findings are rule-based, not guessed.
 ### 2. Clarity Over Prettiness
 Show the mesh state clearly. Color conveys status (green = healthy, yellow = caution, red = error), not decoration.
 
-### 3. Human-in-the-Loop
-Always show dry-run outputs and require explicit approval before applying. Make the review UX prominent.
+### 3. Human-in-the-Loop, and Never talam's Own Hand
+Require explicit approval before a proposal is exposed to whatever external system applies it — talam never applies a patch itself ([ADR-0007](decisions/0007-agent-never-applies-remediation.md)). Make the review UX prominent, and make it visually obvious that "Approved" hands off to another system rather than completing the fix.
 
 ### 4. Audit Trail
 Every action leaves a trace. Logs, proposals, outcomes are all visible and searchable in CRDs.
@@ -67,10 +67,11 @@ Every action leaves a trace. Logs, proposals, outcomes are all visible and searc
 ### Status Indicators
 
 ```
-✓ Applied         (green, checkmark)
+✓ Applied         (green, checkmark — reported by an external system)
 ⏳ Pending        (yellow, hourglass)
 ✗ Failed          (red, X)
 → Proposed        (blue, arrow)
+🔌 Approved, awaiting external system (violet, plug — approved but no outcome reported yet)
 ```
 
 ### Incident Card
@@ -83,7 +84,7 @@ Rule: destination-rule-unused
 Resource: bookinfo/reviews
 Impact: Traffic not reaching v3 backend
 
-Resolutions: 1 (1 approved, pending apply)
+Resolutions: 1 (1 approved, awaiting external system)
 ```
 
 ### Resolution Panel
@@ -92,12 +93,13 @@ Resolutions: 1 (1 approved, pending apply)
 Proposed by: LLM (v0.1)
 Approved by: [user@example.com] ✓
 
-Dry-run output:
-  ✓ Patch applied cleanly
-  ✓ No ResourceVersion conflict
-  
-[Apply] [Reject] [View YAML]
+talam does not apply this patch — approving exposes it to whatever
+system (GitOps, config pipeline, kubectl) is subscribed in this cluster.
+
+[Approve] [Reject] [View Patch YAML] [Copy kubectl command]
 ```
+
+No "Apply" button exists anywhere in the UI — the strongest signal that talam never performs the write itself. A reviewer approves a *proposal*, not an *action*.
 
 ## Content Tone
 

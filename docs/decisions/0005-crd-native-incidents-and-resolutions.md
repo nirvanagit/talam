@@ -1,6 +1,6 @@
 # ADR-0005: Incidents and remediation are Kubernetes CRDs, agent-owned, synced from server
 
-**Status:** Accepted
+**Status:** Accepted — the apply step described below is superseded by [`ADR-0007`](0007-agent-never-applies-remediation.md); the CRD-native design (three reconciler loops, spec/status ownership split) is unchanged.
 **Related:** reads [`ADR-0001`](0001-server-agent-operator-split.md), [`ADR-0003`](0003-human-in-the-loop-remediation.md), [`../concepts/finding-and-incident.md`](../concepts/finding-and-incident.md), [`../concepts/remediation-flow.md`](../concepts/remediation-flow.md); affects [`../components/agent/README.md`](../components/agent/README.md), [`../components/server/README.md`](../components/server/README.md), [`../api/crds.md`](../api/crds.md)
 
 ## Context

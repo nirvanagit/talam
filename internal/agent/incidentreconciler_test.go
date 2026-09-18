@@ -18,8 +18,8 @@ func newFakeMeshIncident(namespace, name string) *unstructured.Unstructured {
 	}}
 }
 
-func withResolutionStatus(res *unstructured.Unstructured, performed bool) *unstructured.Unstructured {
-	res.Object["status"] = map[string]any{"performed": performed}
+func withResolutionOutcome(res *unstructured.Unstructured, outcome string) *unstructured.Unstructured {
+	res.Object["status"] = map[string]any{"outcome": outcome}
 	return res
 }
 
@@ -39,10 +39,10 @@ func TestIncidentReconcilerIncompleteWithNoResolutions(t *testing.T) {
 	}
 }
 
-func TestIncidentReconcilerIncompleteUntilAllPerformed(t *testing.T) {
+func TestIncidentReconcilerIncompleteUntilAllHaveOutcomes(t *testing.T) {
 	inc := newFakeMeshIncident("talam-system", "inc-1")
-	r1 := withResolutionStatus(newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true, "10"), true)
-	r2 := withResolutionStatus(newFakeMeshResolution("talam-system", "prop-2", "inc-1", "prop-2", true, "10"), false)
+	r1 := withResolutionOutcome(newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true), "Applied")
+	r2 := withResolutionOutcome(newFakeMeshResolution("talam-system", "prop-2", "inc-1", "prop-2", true), "")
 	fake := newFakeDynamicClient(inc, r1, r2)
 	ir := &IncidentReconciler{Namespace: "talam-system", Dynamic: fake, Log: testLogger()}
 	ir.reconcileOnce(context.Background())
@@ -53,7 +53,7 @@ func TestIncidentReconcilerIncompleteUntilAllPerformed(t *testing.T) {
 	}
 	complete, _, _ := unstructured.NestedBool(live.Object, "status", "complete")
 	if complete {
-		t.Fatal("an incident with one unperformed resolution must not be Complete")
+		t.Fatal("an incident with one resolution still missing an outcome must not be Complete")
 	}
 	refs, _, _ := unstructured.NestedSlice(live.Object, "status", "resolutionRefs")
 	if len(refs) != 2 {
@@ -61,9 +61,9 @@ func TestIncidentReconcilerIncompleteUntilAllPerformed(t *testing.T) {
 	}
 }
 
-func TestIncidentReconcilerCompleteWhenAllPerformed(t *testing.T) {
+func TestIncidentReconcilerCompleteWhenAllHaveOutcomes(t *testing.T) {
 	inc := newFakeMeshIncident("talam-system", "inc-1")
-	r1 := withResolutionStatus(newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true, "10"), true)
+	r1 := withResolutionOutcome(newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true), "Applied")
 	fake := newFakeDynamicClient(inc, r1)
 	ir := &IncidentReconciler{Namespace: "talam-system", Dynamic: fake, Log: testLogger()}
 	ir.reconcileOnce(context.Background())
@@ -74,13 +74,13 @@ func TestIncidentReconcilerCompleteWhenAllPerformed(t *testing.T) {
 	}
 	complete, _, _ := unstructured.NestedBool(live.Object, "status", "complete")
 	if !complete {
-		t.Fatal("an incident whose only resolution was performed should be Complete")
+		t.Fatal("an incident whose only resolution has an outcome should be Complete")
 	}
 }
 
 func TestIncidentReconcilerIgnoresResolutionsForOtherIncidents(t *testing.T) {
 	inc := newFakeMeshIncident("talam-system", "inc-1")
-	other := withResolutionStatus(newFakeMeshResolution("talam-system", "prop-9", "inc-9", "prop-9", true, "10"), false)
+	other := withResolutionOutcome(newFakeMeshResolution("talam-system", "prop-9", "inc-9", "prop-9", true), "")
 	fake := newFakeDynamicClient(inc, other)
 	ir := &IncidentReconciler{Namespace: "talam-system", Dynamic: fake, Log: testLogger()}
 	ir.reconcileOnce(context.Background())

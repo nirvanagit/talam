@@ -71,9 +71,9 @@ func TestCRDSyncCreatesIncidentAndResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected MeshResolution created: %v", err)
 	}
-	triggered, _, _ := unstructured.NestedBool(liveRes.Object, "spec", "triggered")
-	if !triggered {
-		t.Error("an Approved proposal must sync to spec.triggered = true")
+	approved, _, _ := unstructured.NestedBool(liveRes.Object, "spec", "approved")
+	if !approved {
+		t.Error("an Approved proposal must sync to spec.approved = true")
 	}
 	incidentRef, _, _ := unstructured.NestedString(liveRes.Object, "spec", "incidentRef")
 	if incidentRef != "inc-1" {
@@ -81,7 +81,7 @@ func TestCRDSyncCreatesIncidentAndResolution(t *testing.T) {
 	}
 }
 
-func TestCRDSyncDoesNotTriggerPendingOrRejected(t *testing.T) {
+func TestCRDSyncDoesNotApprovePendingOrRejected(t *testing.T) {
 	for _, state := range []api.ProposalState{api.ProposalPending, api.ProposalRejected} {
 		prop := api.RemediationProposal{
 			ID: "prop-x", IncidentID: "inc-1", Cluster: "kind-local",
@@ -97,19 +97,20 @@ func TestCRDSyncDoesNotTriggerPendingOrRejected(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		triggered, _, _ := unstructured.NestedBool(live.Object, "spec", "triggered")
-		if triggered {
-			t.Errorf("state %s must not sync to spec.triggered = true", state)
+		approved, _, _ := unstructured.NestedBool(live.Object, "spec", "approved")
+		if approved {
+			t.Errorf("state %s must not sync to spec.approved = true", state)
 		}
 	}
 }
 
-func TestCRDSyncUpdatesPhaseUntilPerformed(t *testing.T) {
+func TestCRDSyncUpdatesPhaseUntilOutcomeReported(t *testing.T) {
 	// A resolution created while Pending, whose proposal is later Rejected
 	// server-side, must have its status.phase updated to Rejected — nothing
-	// else ever touches phase for an object that never triggers an apply.
-	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", false, "10")
-	res.Object["status"] = map[string]any{"phase": "Pending", "performed": false}
+	// else ever touches phase for an object no external system has reported
+	// an outcome for.
+	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", false)
+	res.Object["status"] = map[string]any{"phase": "Pending"}
 	fake := newFakeDynamicClient(res)
 
 	prop := api.RemediationProposal{ID: "prop-1", IncidentID: "inc-1", Cluster: "kind-local", Target: mesh.ResourceRef{Kind: "DestinationRule", Namespace: "demo", Name: "httpbin"}, State: api.ProposalRejected}
@@ -128,13 +129,12 @@ func TestCRDSyncUpdatesPhaseUntilPerformed(t *testing.T) {
 }
 
 func TestCRDSyncDoesNotClobberLocalResolutionStatus(t *testing.T) {
-	// Simulates: ResolutionReconciler already applied this proposal locally
-	// and set status.performed = true, but the sync round-trip to report the
-	// outcome back to talam-server hasn't landed yet, so the server still
-	// reports it as Approved (not yet Applied). Sync must not downgrade the
-	// local status back to unperformed.
-	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true, "10")
-	res.Object["status"] = map[string]any{"phase": "Applied", "performed": true}
+	// Simulates: an external system already reported an outcome for this
+	// proposal and set status.outcome = Applied, but the relay to
+	// talam-server hasn't landed yet, so the server still reports it as
+	// Approved (not yet Applied). Sync must not overwrite the local outcome.
+	res := newFakeMeshResolution("talam-system", "prop-1", "inc-1", "prop-1", true)
+	res.Object["status"] = map[string]any{"phase": "Applied", "outcome": "Applied"}
 	fake := newFakeDynamicClient(res)
 
 	prop := api.RemediationProposal{ID: "prop-1", IncidentID: "inc-1", Cluster: "kind-local", Target: mesh.ResourceRef{Kind: "DestinationRule", Namespace: "demo", Name: "httpbin"}, State: api.ProposalApproved}
@@ -146,8 +146,8 @@ func TestCRDSyncDoesNotClobberLocalResolutionStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	performed, _, _ := unstructured.NestedBool(live.Object, "status", "performed")
-	if !performed {
-		t.Fatal("sync must not overwrite status on an existing MeshResolution — status is owned by ResolutionReconciler after creation")
+	outcome, _, _ := unstructured.NestedString(live.Object, "status", "outcome")
+	if outcome != "Applied" {
+		t.Fatal("sync must not overwrite status on an existing MeshResolution — status is owned by ResolutionReconciler after an outcome is reported")
 	}
 }

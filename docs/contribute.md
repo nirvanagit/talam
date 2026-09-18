@@ -44,7 +44,7 @@ talam/
 ├── internal/
 │   ├── analyzer/          # Detection logic (deterministic)
 │   ├── operator/          # Operator reconcilers
-│   ├── agent/             # Agent reconcilers (CRD sync, apply)
+│   ├── agent/             # Agent reconcilers (CRD sync, outcome relay — never applies remediation itself)
 │   ├── server/            # API, LLM coordination, MCP registry
 │   └── meshmcp/           # Mesh-specific MCP tools
 ├── deploy/                # Kubernetes manifests (CRDs, RBAC, deployments)

@@ -6,9 +6,12 @@
 #   "mirror" line in that ClusterRole isn't used by the operator directly —
 #   it exists only because Kubernetes' RBAC escalation check refuses to let
 #   a ClusterRole grant a rule its own creator doesn't already hold, and this
-#   operator hands those exact read-only + scoped-patch rules to the agent
-#   ClusterRole it creates (internal/operator/reconciler.go ensureRBAC). Keep
-#   that block in sync with ensureRBAC's agent ClusterRole rules.
+#   operator hands those exact read-only rules to the agent ClusterRole it
+#   creates (internal/operator/reconciler.go ensureRBAC). The agent ClusterRole
+#   is read-only against every mesh resource, full stop — talam-agent never
+#   applies remediation itself (ADR-0007), so there is no write rule to
+#   mirror here anymore. Keep this block in sync with ensureRBAC's agent
+#   ClusterRole rules.
 # - A namespaced Role, bound only in talam-system, for the agent's
 #   ServiceAccount, Deployment, and — per ADR-0005 — its MeshIncident /
 #   MeshResolution access: all three are always created in the operator's own
@@ -57,9 +60,6 @@ rules:
   - apiGroups: ["security.istio.io"]
     resources: ["*"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: ["networking.istio.io"]
-    resources: ["destinationrules", "virtualservices", "gateways", "serviceentries"]
-    verbs: ["patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
